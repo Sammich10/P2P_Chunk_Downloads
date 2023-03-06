@@ -466,6 +466,7 @@ void listenForConnections(){
     while(1){
         int client_sock = accept(sock, (sockaddr*)&client_addr, (socklen_t*)&addr_size);
         check(client_sock, "error accepting connection");
+        printf("Accepted connection from %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
         std::thread t1(&handleConnection, client_sock);
         t1.detach();
     }
