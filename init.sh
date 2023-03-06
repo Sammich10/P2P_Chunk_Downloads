@@ -1,16 +1,14 @@
 #!/bin/bash
 
-if [ ! -d "peer_files" ]; then
-  exit
-fi
-
 if [ ! -d "peer_configs" ]; then
   mkdir "peer_configs"
-  for {i..16}
+  for i in {1..16}
   do
-    j = ( 8082 + i )
-    echo "peer${i}" > "peer_configs/peer${i}.cfg"
-    echo
+    ip="127.0.0.1"
+    j=$((8081 + i))
+    echo "PORT ${j}" >> "peer_configs/peer${i}.cfg"
+    echo "SERVER_IP ${ip}" >> "peer_configs/peer${i}.cfg"
+    echo "HOST_FOLDER peer_files/p${i}_files" >> "peer_configs/peer${i}.cfg"
 
   done
 fi
@@ -38,6 +36,12 @@ fi
 
 rm tests/*
 
+echo "wait 10" > tests/wait10.txt
+
+echo "wait 20" > tests/wait20.txt
+
+echo "wait 100" > tests/wait100.txt
+
 for i in {1..16}
 do
   echo "wait 3" > "tests/test${i}.txt"
@@ -47,13 +51,27 @@ do
   echo "t8kb${i}.txt">> "tests/test${i}.txt"
   echo "t32kb${i}.txt">> "tests/test${i}.txt"
   echo "update" >> "tests/test${i}.txt"
-  echo "wait 4" >> "tests/test${i}.txt"
+  echo "wait 3" >> "tests/test${i}.txt"
 done
 
+for i in {1..4}
+do
+  echo "t128b${i}.txt">> "tests/test128b.txt"
+  echo "t512b${i}.txt">> "tests/test512b.txt"
+  echo "t2kb${i}.txt">> "tests/test2kb.txt"
+  echo "t8kb${i}.txt">> "tests/test8kb.txt"
+  echo "t32kb${i}.txt">> "tests/test32kb.txt"
+done
+
+echo "wait 10" > "tests/exit.txt"
 echo "exit" >> "tests/exit.txt"
 
 if [ ! -d "logs" ]; then
   mkdir "logs"
 fi
-rm logs/*
 
+if [ ! -d "results" ]; then
+  mkdir "results"
+fi
+
+rm logs/*
