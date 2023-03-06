@@ -234,6 +234,7 @@ void checkDownloadDirect(){
 void updateFileList(){
     std::string path = get_current_dir_name();
     path += "/" + host_folder;
+    fileList.clear();
     for(const auto & entry : fs::directory_iterator(path)){
         //std::cout << entry.path() << std::endl;
         file_info f;
@@ -248,14 +249,36 @@ std::vector<file_info> getFileList(){
     return fileList;
 }
 
+int update_hosted_files_all(int sock){
+    std::vector<file_info> hostedFiles = getFileList();
+    MessageHeader h;
+    h.length = strlen("update");
+    check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
+    check(send(sock, "update", strlen("update"), 0), "error sending update command to server"); //send update command to server
+
+    h.length = sizeof(int);
+    int size = hostedFiles.size();
+    check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
+    check(send(sock, &port, sizeof(port), 0), "error sending port to server");
+    check(send(sock, &size, sizeof(size), 0), "error sending number of files to server");
+
+    for(int i = 0;(long unsigned int)i < hostedFiles.size(); i++){
+        h.length = hostedFiles[i].file_name.length();
+        check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
+        check(send(sock, hostedFiles[i].file_name.c_str(), hostedFiles[i].file_name.length(), 0), "error sending file name to server");
+        check(send(sock, &hostedFiles[i].file_size, sizeof(hostedFiles[i].file_size), 0), "error sending file size to server");
+    }
+    return 0;
+}
+
 //update the server with the files that are currently hosted, either delete or add
 int update_hosted_files(int sock, int operation, char filename[]){
 
     std::vector<file_info> hostedFiles = getFileList();
     MessageHeader h;
-    h.length = sizeof("update");
+    h.length = strlen("single_update");
     check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
-    check(send(sock, "update", strlen("update"), 0), "error sending update command to server"); //send update command to server
+    check(send(sock, "single_update", strlen("single_update"), 0), "error sending update command to server"); //send update command to server
 
     h.length = sizeof(int);
     check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
@@ -510,11 +533,19 @@ int main(int argc, char *argv[]){
     cout << "Enter a file name to find peers hosting it, and download it if there is a host" << endl;
     while(1){
         std::cin >> input;
-        if(input != "exit"){
+        if(input == "wait"){
+            std::cin >> input;
+            std::this_thread::sleep_for(std::chrono::seconds(atoi(input.c_str())));
+            cout<<"Waited for "<<input<<" seconds"<<endl;
+            continue;
+        }
+        else if(input == "update"){
+            update_hosted_files_all(sconnect(server_ip, SERVER_PORT));
+        }
+        else if(input != "exit"){
             vector <string> peers = findPeers((char*)input.c_str());
             if(peers.size() > 0){
                 downloadFromPeer(peers, (char*)input.c_str());
-                update_hosted_files(sconnect(server_ip, SERVER_PORT), 1, (char*)input.c_str());
             }
         }else if(input == "exit"){
             break;

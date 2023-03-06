@@ -59,6 +59,46 @@ void check(int n, const char *msg){
 	}
 }
 
+int update_all_peer_files(int client_socket, struct sockaddr_in client_addr){//function to update all peer files
+	MessageHeader h;
+	peer_info p;
+	
+	int peer_port;
+	int num_files_int;
+
+	recv(client_socket, &h, sizeof(h), 0); //receive message header
+	recv(client_socket, &peer_port, h.length, 0); //receive peer port
+	recv(client_socket, &num_files_int, h.length, 0); //receive number of files
+
+	strcpy(p.ip,inet_ntoa(client_addr.sin_addr));
+	p.port = peer_port;
+
+	if(peers.size() < 1){
+		printf("Peer %s:%d not registered\n",p.ip,p.port);
+	}
+	else{
+		for(int i=0;(long unsigned int)i < peers.size();i++){
+			if(strcmp(peers[i].ip,p.ip) == 0 && peers[i].port == p.port){
+				peers[i].files.clear();
+				for(int j=0;j<num_files_int;j++){
+					file_info f;
+					char file_name_buffer[BUFSIZE] = {0};
+					recv(client_socket, &h, sizeof(h), 0); //receive message header
+					recv(client_socket, &file_name_buffer, h.length, 0); //receive message body
+					recv(client_socket, &f.file_size, sizeof(f.file_size), 0); //receive message body
+					std::string file_name = file_name_buffer;
+					f.file_name = file_name;
+					peers[i].files.push_back(f);
+				}
+				printf("Peer %s:%d updated\n",p.ip,p.port);
+				return 0;
+			}
+		}
+	printf("Peer %s:%d not registered\n",p.ip,p.port);
+	}
+	return 0;
+}
+
 int update_peer_files(int client_socket, struct sockaddr_in client_addr){//function to update peer files
 	MessageHeader h;
 	peer_info p;
@@ -249,7 +289,11 @@ void handle_connection(int client_socket, struct sockaddr_in client_addr){//func
 		printf("Querying peers for file\n");
 		findFile(client_socket);
 	}
-	else if(strncmp(buffer,"update",6)==0){//exit
+	else if(strncmp(buffer,"update",6)==0){
+		printf("Updating peer files\n");
+		update_all_peer_files(client_socket,client_addr);
+	}
+	else if(strncmp(buffer,"single_update",13)==0){
 		update_peer_files(client_socket,client_addr);
 	}
 	else{//invalid command
