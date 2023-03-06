@@ -396,6 +396,8 @@ std::vector <std::string> findPeers(char* file_name){
     MessageHeader h;
     h.length = strlen("find");
 
+    clock_t start = clock(); //start timer
+
     check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
     check(send(sock, "find", strlen("find"), 0), "error sending find request to server");
     h.length = strlen(file_name);
@@ -408,7 +410,7 @@ std::vector <std::string> findPeers(char* file_name){
     if(num_peers == 0){
         printf("No peers found for file %s\n", file_name);
     }else{
-        printf("Found %d peers for file %s\n", num_peers, file_name);
+        printf("Found %d peer(s) for file %s\n", num_peers, file_name);
         
         for(int i = 0; i < num_peers; i++){
             std::string peer_ip_port;
@@ -421,6 +423,12 @@ std::vector <std::string> findPeers(char* file_name){
             valid_peers.push_back(peer_ip_port);
         }
     }
+
+    clock_t end = clock(); //end timer
+    double time_taken = double(end - start) / double(CLOCKS_PER_SEC);
+
+    printf("Time taken to find peers: %f seconds\n",time_taken);
+
     close(sock);
     return valid_peers;
 }
@@ -430,12 +438,12 @@ void handleConnection(int client_socket){
     MessageHeader h;
     recv(client_socket, &h, sizeof(h), 0);
     recv(client_socket, buffer, h.length, 0);
-    printf("Received message: %s\n", buffer);
+    //printf("Received message: %s\n", buffer);
 
     if(strcmp(buffer, "download") == 0){
         recv(client_socket, &h, sizeof(h), 0);
         recv(client_socket, buffer, h.length, 0);
-        printf("Received file name: %s\n", buffer);
+        printf("Received download request for file name: %s\n", buffer);
         std::string file_name = buffer;
 
         std::string path = get_current_dir_name();
@@ -453,7 +461,7 @@ void handleConnection(int client_socket){
             update_hosted_files(sconnect(server_ip, SERVER_PORT), 1, (char*)file_name.c_str());
             return;
         }else{
-            printf("File found\n");
+            //printf("File found\n");
             h.length = strlen("File found");
             send(client_socket, &h, sizeof(h), 0);
             send(client_socket, "File found", h.length, 0);
