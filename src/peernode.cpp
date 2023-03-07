@@ -323,7 +323,7 @@ void updateFileList(){
     path += "/" + host_folder;
     fileList.clear();
 
-    //std::shared_lock<std::shared_mutex> lock(directoryMutex);
+    std::shared_lock<std::shared_mutex> lock(directoryMutex);
 
     for(const auto & entry : fs::directory_iterator(path)){
         //std::cout << entry.path() << std::endl;
@@ -384,7 +384,7 @@ int update_hosted_files(int sock, int operation, char filename[]){
         h.length = strlen(filename);
         std::string path = get_current_dir_name();
         path += "/" + host_folder + "/" + filename;
-        //std::shared_lock<std::shared_mutex> lock(directoryMutex);
+        std::shared_lock<std::shared_mutex> lock(directoryMutex);
         int filesize = fs::file_size(path);
         check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
         check(send(sock, filename, strlen(filename), 0), "error sending filename to server");
@@ -394,6 +394,7 @@ int update_hosted_files(int sock, int operation, char filename[]){
     return 0;
 }
 
+//register the peer with the server
 int register_peer(int port){
 
     std::vector<file_info> hostedFiles = getFileList();
