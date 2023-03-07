@@ -37,6 +37,7 @@ struct peer_info{//struct to store registered peer information
 
 typedef struct sockaddr SA;
 
+std::shared_mutex directoryMutex;
 std::mutex mtx;
 
 void check(int n, const char *msg);
@@ -131,12 +132,13 @@ int downloadFile(int socket, char filename[]){
     char read_buffer[BUFSIZE] ={0};
 
     int sock = socket;
-    
+    std::lock_guard<std::mutex> lock(mtx);
     MessageHeader h;
     h.length = strlen("download");
     send(sock, &h, sizeof(h), 0); //send message header
     if((send(sock, "download", strlen("download"), 0))<0){ //send download command to server
         printf("error sending download command to server\n");
+        close(sock);
         return -1;
     }
 
@@ -144,6 +146,7 @@ int downloadFile(int socket, char filename[]){
     send(sock, &h, sizeof(h), 0); //send message header
     if((send(sock, filename, strlen(filename), 0))<0){ //send filename to server
         printf("error sending file name to server\n");
+        close(sock);
         return -1;
     }
     
@@ -171,7 +174,8 @@ int downloadFile(int socket, char filename[]){
 
     //create path to download folder
     std::string n_host_folder = host_folder + "/" + filename;
-    mtx.lock();
+    //lock directory
+
     FILE *fp = fopen(n_host_folder.c_str(), "w");
     //To time the speed of transfer
     clock_t start;
@@ -191,7 +195,7 @@ int downloadFile(int socket, char filename[]){
     total_dl_time +=dur;
     fclose(fp);
 
-    mtx.unlock();
+    
 
 
     if(valread < 0){
@@ -203,6 +207,85 @@ int downloadFile(int socket, char filename[]){
     
     close(sock);
     return 0;
+}
+
+//download a file from a peer
+void downloadFromPeer(std::vector<std::string> peers, char* file_name){
+    int random_peer;
+    //choose a random peer to download from
+    if(peers.size() > 1){
+        random_peer = (rand() % (peers.size()-1));
+    }else{
+        random_peer = 0;
+    }
+        
+    std::string peer_ip = peers[random_peer].substr(0, peers[random_peer].find(":"));
+    int peer_port = std::stoi(peers[random_peer].substr(peers[random_peer].find(":")+1, peers[random_peer].length()));
+
+    printf("Connecting to peer %s:%d\n", peer_ip.c_str(), peer_port);
+
+    int peer_sock = sconnect((char*)peer_ip.c_str(), peer_port);
+
+    int dls = downloadFile(peer_sock, file_name);
+    
+    //if the download failed, remove the peer from the list and try again with a different peer
+    if(dls == -1){
+        printf("Error downloading file from peer %s:%d\n", peer_ip.c_str(), peer_port);
+        peers.erase(peers.begin() + random_peer);
+        if(peers.size() == 0){
+            printf("No peers available to download file from\n");
+            return;
+        }
+        downloadFromPeer(peers, file_name);
+    }
+    
+
+}
+
+std::vector <std::string> findPeers(char* file_name){
+
+    int sock = sconnect(server_ip, SERVER_PORT);
+
+    std::vector <std::string> valid_peers;
+    
+    MessageHeader h;
+    h.length = strlen("find");
+
+    clock_t start = clock(); //start timer
+
+    check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
+    check(send(sock, "find", strlen("find"), 0), "error sending find request to server");
+    h.length = strlen(file_name);
+    check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
+    check(send(sock, file_name, strlen(file_name), 0), "error sending file name to server");
+
+    int num_peers;
+    check(recv(sock, &num_peers, sizeof(num_peers), 0), "error receiving number of peers from server");
+
+    if(num_peers == 0){
+        printf("No peers found for file %s\n", file_name);
+    }else{
+        printf("Found %d peer(s) for file %s\n", num_peers, file_name);
+        
+        for(int i = 0; i < num_peers; i++){
+            std::string peer_ip_port;
+            char buffer[BUFSIZE] = {0};
+
+            check(recv(sock, &h, sizeof(h), 0), "error receiving message header"); //receive message header
+            check(recv(sock, &buffer, h.length, 0), "error receiving peer port from server");
+            peer_ip_port = buffer;
+            //printf("Peer %s\n",peer_ip_port.c_str());  
+            valid_peers.push_back(peer_ip_port);
+        }
+    }
+
+    clock_t end = clock(); //end timer
+    double time_taken = double(end - start) / double(CLOCKS_PER_SEC);
+
+    printf("Time taken to find peers: %f seconds\n",time_taken);
+
+    close(sock);
+    return valid_peers;
 }
 
 //check if the upload directory exists, if not, create it
@@ -239,6 +322,9 @@ void updateFileList(){
     std::string path = get_current_dir_name();
     path += "/" + host_folder;
     fileList.clear();
+
+    std::shared_lock<std::shared_mutex> lock(directoryMutex);
+
     for(const auto & entry : fs::directory_iterator(path)){
         //std::cout << entry.path() << std::endl;
         file_info f;
@@ -298,6 +384,7 @@ int update_hosted_files(int sock, int operation, char filename[]){
         h.length = strlen(filename);
         std::string path = get_current_dir_name();
         path += "/" + host_folder + "/" + filename;
+        std::shared_lock<std::shared_mutex> lock(directoryMutex);
         int filesize = fs::file_size(path);
         check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
         check(send(sock, filename, strlen(filename), 0), "error sending filename to server");
@@ -359,84 +446,6 @@ void unregister_peer(){
     return;
 }
 
-//download a file from a peer
-void downloadFromPeer(std::vector<std::string> peers, char* file_name){
-    int random_peer;
-    //choose a random peer to download from
-    if(peers.size() > 1){
-        random_peer = (rand() % (peers.size()-1));
-    }else{
-        random_peer = 0;
-    }
-        
-    std::string peer_ip = peers[random_peer].substr(0, peers[random_peer].find(":"));
-    int peer_port = std::stoi(peers[random_peer].substr(peers[random_peer].find(":")+1, peers[random_peer].length()));
-
-    printf("Connecting to peer %s:%d\n", peer_ip.c_str(), peer_port);
-
-    int peer_sock = sconnect((char*)peer_ip.c_str(), peer_port);
-
-    int dls = downloadFile(peer_sock, file_name);
-    
-    //if the download failed, remove the peer from the list and try again with a different peer
-    if(dls == -1){
-        printf("Error downloading file from peer %s:%d\n", peer_ip.c_str(), peer_port);
-        peers.erase(peers.begin() + random_peer);
-        if(peers.size() == 0){
-            printf("No peers available to download file from\n");
-            return;
-        }
-        downloadFromPeer(peers, file_name);
-    }
-    
-
-}
-
-std::vector <std::string> findPeers(char* file_name){
-    int sock = sconnect(server_ip, SERVER_PORT);
-
-    std::vector <std::string> valid_peers;
-    
-    MessageHeader h;
-    h.length = strlen("find");
-
-    clock_t start = clock(); //start timer
-
-    check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
-    check(send(sock, "find", strlen("find"), 0), "error sending find request to server");
-    h.length = strlen(file_name);
-    check(send(sock, &h, sizeof(h), 0), "error sending message header"); //send message header
-    check(send(sock, file_name, strlen(file_name), 0), "error sending file name to server");
-
-    int num_peers;
-    check(recv(sock, &num_peers, sizeof(num_peers), 0), "error receiving number of peers from server");
-
-    if(num_peers == 0){
-        printf("No peers found for file %s\n", file_name);
-    }else{
-        printf("Found %d peer(s) for file %s\n", num_peers, file_name);
-        
-        for(int i = 0; i < num_peers; i++){
-            std::string peer_ip_port;
-            char buffer[BUFSIZE] = {0};
-
-            check(recv(sock, &h, sizeof(h), 0), "error receiving message header"); //receive message header
-            check(recv(sock, &buffer, h.length, 0), "error receiving peer port from server");
-            peer_ip_port = buffer;
-            //printf("Peer %s\n",peer_ip_port.c_str());  
-            valid_peers.push_back(peer_ip_port);
-        }
-    }
-
-    clock_t end = clock(); //end timer
-    double time_taken = double(end - start) / double(CLOCKS_PER_SEC);
-
-    printf("Time taken to find peers: %f seconds\n",time_taken);
-
-    close(sock);
-    return valid_peers;
-}
-
 void handleConnection(int client_socket){
     char buffer[BUFSIZE] = {0};
     MessageHeader h;
@@ -453,8 +462,7 @@ void handleConnection(int client_socket){
         std::string path = get_current_dir_name();
         path += "/" + host_folder + "/" + file_name;
 
-        mtx.lock();
-
+        std::lock_guard<std::mutex> lock(mtx);
         FILE *fp = fopen(path.c_str(), "rb");
 
         if(fp == NULL){
@@ -465,7 +473,6 @@ void handleConnection(int client_socket){
             close(client_socket);
             //if the file is not found, update the server and tell it to remove the file from the list of hosted files
             update_hosted_files(sconnect(server_ip, SERVER_PORT), 1, (char*)file_name.c_str());
-            mtx.unlock();
             return;
         }else{
             //printf("File found\n");
@@ -481,16 +488,16 @@ void handleConnection(int client_socket){
         start = std::clock();
         size_t bytes_sent = 0;
         size_t bytes_read;
-        while((bytes_read = fread(buffer, 1, BUFSIZE, fp)) > 0){
+
+        while((bytes_read = fread(buffer, 1, BUFSIZE, fp)) > 0){    
             bytes_sent += bytes_read;
             send(client_socket, buffer, bytes_read, 0);
         }
-
         dur = (std::clock() - start) / (double) CLOCKS_PER_SEC;
         printf("Sent %zu bytes in %.16f seconds\n", bytes_sent, dur);
         
         close(client_socket);
-        mtx.unlock();
+        
 
     }
 
@@ -515,7 +522,7 @@ void check(int n, const char *msg){
 	if(n<0){
 		perror(msg);
         //unregister_peer();
-		exit(1);
+		//exit(1);
 	}
 }
 

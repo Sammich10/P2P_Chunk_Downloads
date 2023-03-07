@@ -1,5 +1,5 @@
 
-# <File Simple Peer-to-peer file sharing implementation in C++>
+# < Simple Peer-to-peer file sharing implementation in C++ >
 
 [Description](#Description)
 
@@ -9,8 +9,6 @@
 
 [Evaluation](#Evaluation)
 
-[TL;DR](#TL;DR)
-
 ### NOTE!
 To run the scripts included, you'll probably have to use "chmod +x script_name.sh"
 
@@ -18,7 +16,7 @@ To run the scripts included, you'll probably have to use "chmod +x script_name.s
 This project includes 2 separate but functionally related programs: 
 - an index server that tracks peers on the network, and can find peers hosting a particular file
 
-The server code sets up a socket to listen to incoming TCP connections and create a new thread to handle those connections. The server can listen on a user specified port from a configuration file. The location of the config file is passed as an argument to the program when you run it. Once a connection is established, the `handle_connection` function is called in a newly created thread, and it begins by reading the data sent on the client socket. The messages consists of a message length (specified via a "header" struct) followed by the message. The server recognizes a few commands. It can register a peer, where it gets the peer's IP address, the port the peer is listening to, and the list of files that the peer is hosting. Conversely, it can unregister a peer and remove it from the list of peers on the network. It can also query a file name, looking in it's list of peers for peers that are hosting that file, and returning to the requester a list of IP's and ports of peers hosting that file. Additionally, it can update the entire list of files a peer hosts, and it can add or remove a file from a the list of files a peer is hosting.
+The server code sets up a socket to listen to incoming TCP connections and create a new thread to handle those connections. The server can listen on a user specified port from a configuration file. The location of the config file is passed as an argument to the program when you run it. Once a connection is established, the `handle_connection` function is called in a newly created thread, and it begins by reading the data sent on the client socket. The messages consists of a message length (specified via a "header" struct) followed by the message. The server recognizes a few commands. It can register a peer, where it gets the peer's IP address, the port the peer is listening to, and the list of files that the peer is hosting. Conversely, it can unregister a peer and remove it from the list of peers on the network. It can also query a file name, looking in it's list of peers for peers that are hosting that file, and returning to the requester a list of IP's and ports of peers hosting that file. Additionally, it can update the entire list of files a peer hosts, and it can add or remove a single file from a the list of files a peer is hosting.
 
 
 - a peer to host files and download files
@@ -59,26 +57,6 @@ Open 2 more terminals and type
 
 You now have 3 peer nodes running. You should see in the server terminal that it has registered 3 peer nodes. You can then type a filename into peer any peer's terminal, such as t32kb1.txt from peer 3. It will contact the server, get peer 1's information, and download the file. You should see the output in the respective terminals. You can now type "update" into peer 3's terminal. Now, if you request that same file from peer 3, you will see that there are now 2 peers hosting that file. 
 
-## Evaluation
+## Evaluation and Scripts
 
-In addition, there are some scripts included that perform automated tests using the sample files and configs generated. The names should be pretty self-explanitory. In the "textXnodes.sh" scripts, X nodes are created, each of which downloads 10 files from two other nodes. After 5 files are downloaded, each node updates it's file list to the server. These tests generate log files in the "logs" folder, and generate results in the "results" folder.
-
-
-## TL;DR
-
-Run "make" in the root directory to compile the source files. In one terminal, run the 
-
-    ./server.o
-    
-file (from the directory it is compiled into), do the same with 
-
-    ./client.o
-
-in another terminal. This will run the program interactively. Follow the prompts.
-
-You can also run the "run.sh" script to start the server in the background and only interact with the client. Just make sure to kill the process when you're done using pkill. 
-
-Alternatively, run the "clients_parallel.sh" or "clients_serial.sh" scripts with either an integer argument or no argument, and behold as the script generates N number of clients to download files
-from the server, and conveniently aggregates the results in the "results" directory!
-
-Or, run "perform_all_test.sh" script to automatically run tests using a varied number of clients, and aggregates the results in "results" for you!
+In addition, there are some scripts included that perform automated tests using the sample files and configs generated. The names should be pretty self-explanitory. In the "textXnodes.sh" scripts, X nodes are created, each of which downloads 10 files from two other nodes. After 5 files are downloaded, each node updates it's file list to the server. These tests generate log files in the "logs" folder, and generate results in the "results" folder. The "testfilesize.sh" script tests download speeds for each of the varying file sizes by starting a server and 4 clients, and having each client request a file of X size from each peer 3 times, and also generates logs and compiles results in the respective folders. Additionally, the "deploy.sh" script will start 8 peers, running for 100 seconds, the 8th of which can be interacted with in the terminal. The "cleanup" script kills any background peer or server processes and removes all the files from each peer's hosting folder.

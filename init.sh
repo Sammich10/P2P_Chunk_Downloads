@@ -13,6 +13,8 @@ if [ ! -d "peer_configs" ]; then
   done
 fi
 
+echo "PORT 8080" > "peer_configs/server.cfg"
+
 for i in {1..16}
 do
   if [ ! -d "peer_files/p${i}_files" ]

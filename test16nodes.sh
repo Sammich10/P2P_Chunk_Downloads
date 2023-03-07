@@ -10,9 +10,12 @@ if [ ! -d "tests" ]; then
   exit 1
 fi
 
+echo "starting server"
 ./server.o peer_configs/server.cfg > logs/server.log &
 
 sleep 5
+
+echo "starting 16 peer nodes"
 
 cat tests/wait20.txt tests/test5.txt tests/test2.txt tests/exit.txt | ./peernode.o peer_configs/peer1.cfg > logs/peer1.log &
 

@@ -10,8 +10,6 @@ int port = PORT;
 typedef struct sockaddr_in SA_IN;
 typedef struct sockaddr SA;
 
-std::mutex mtx;
-
 struct file_info{//struct to store file information
 	std::string file_name;
 	int file_size;
@@ -57,7 +55,7 @@ bool loadConfig(const char filepath[]){//function to load configuration paramete
 void check(int n, const char *msg){
 	if(n<0){
 		perror(msg);
-		exit(1);
+		//exit(1);
 	}
 }
 
@@ -102,7 +100,7 @@ int update_all_peer_files(int client_socket, struct sockaddr_in client_addr){//f
 }
 
 int update_peer_files(int client_socket, struct sockaddr_in client_addr){//function to update peer files
-	mtx.lock();
+
 	MessageHeader h;
 	peer_info p;
 	
@@ -118,7 +116,7 @@ int update_peer_files(int client_socket, struct sockaddr_in client_addr){//funct
 
 	if(peers.size() < 1){
 		printf("Peer %s:%d not registered\n",p.ip,p.port);
-		mtx.unlock();
+
 		return 0;
 	}
 
@@ -133,7 +131,7 @@ int update_peer_files(int client_socket, struct sockaddr_in client_addr){//funct
 					if(peers[i].files[j].file_name == file_name){
 						peers[i].files.erase(peers[i].files.begin()+j);
 						printf("Peer %s:%d updated\nFile %s deleted",p.ip,p.port,file_name.c_str());
-						mtx.unlock();
+						 
 						return 0;
 					}
 				}
@@ -149,23 +147,23 @@ int update_peer_files(int client_socket, struct sockaddr_in client_addr){//funct
 				for(int j = 0; (long unsigned int)j<peers[i].files.size();j++){
 					if(peers[i].files[j].file_name == file_name){
 						printf("Peer %s:%d already hosting file %s",p.ip,p.port,file_name.c_str());
-						mtx.unlock();
+						 
 						return 0;
 					}
 				}
 				peers[i].files.push_back(f);
 				printf("Peer %s:%d updated\nFile %s added",p.ip,p.port,file_name.c_str());
-				mtx.unlock();
+				 
 				return 0;
 				}
 		}
 	}
-	mtx.unlock();
+	 
 	return 0;
 }
 
 int register_peer(int client_socket, struct sockaddr_in client_addr){//function to register peer
-	mtx.lock();
+	 
 	MessageHeader h;
 	peer_info p;
 	
@@ -183,7 +181,7 @@ int register_peer(int client_socket, struct sockaddr_in client_addr){//function 
 		for(int i=0;(long unsigned int)i < peers.size();i++){
 			if(strcmp(peers[i].ip,p.ip) == 0 && peers[i].port == p.port){
 				printf("Peer %s:%d already registered\n",p.ip,p.port);
-				mtx.unlock();
+				 
 				return 1;
 			}
 		}
@@ -202,13 +200,13 @@ int register_peer(int client_socket, struct sockaddr_in client_addr){//function 
 		f.file_name = file_name_buffer;
 		peers.back().files.push_back(f);
 	}
-	mtx.unlock();
+	 
 	printf("Peer %s:%d registered successfully\n",p.ip,p.port);
 	return 0;
 }
 
 int unregister_peer(int client_socket, struct sockaddr_in client_addr){//function to unregister peer
-	mtx.lock();
+	 
 	MessageHeader h;
 	peer_info p;
 	
@@ -224,11 +222,11 @@ int unregister_peer(int client_socket, struct sockaddr_in client_addr){//functio
 		if(strcmp(peers[i].ip,p.ip)==0 && peers[i].port==p.port){
 			peers.erase(peers.begin()+i);
 			printf("Peer %s:%d unregistered successfully\n",p.ip,p.port);
-			mtx.unlock();
+			 
 			return 0;
 		}
 	}
-	mtx.unlock();
+	 
 	printf("Peer %s:%d not found\n",p.ip,p.port);
 	return 0;
 }
@@ -246,7 +244,7 @@ std::vector<peer_info> queryFile(std::string file_name){//function to query file
 }
 
 int findFile(int client_socket){//function to find file
-	mtx.lock();
+	 
 	MessageHeader h;
 	char file_name_buffer[BUFSIZE] = {0};
 	std::string file_name;
@@ -268,7 +266,7 @@ int findFile(int client_socket){//function to find file
 		send(client_socket, &h, sizeof(h), 0); //send message header
 		send(client_socket, peer_info.c_str(), h.length, 0); //send message body
 	}
-	mtx.unlock();
+	 
 	return 0;
 }
 

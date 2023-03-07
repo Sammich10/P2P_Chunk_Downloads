@@ -46,7 +46,8 @@ do
         file="tests/test32kb.txt"
     fi
 
-
+    echo "creating server"
+    
     ./server.o peer_configs/server.cfg > logs/server.log &
 
     sleep 5
@@ -60,8 +61,8 @@ do
     cat tests/wait10.txt ${file} ${file} ${file} tests/exit.txt | ./peernode.o peer_configs/peer4.cfg >> logs/peer4.log &
 
     sleep  1
-    echo "testing, please wait... This will take about 20 seconds"
-    sleep 20
+    echo "testing, please wait... This will take about 30 seconds"
+    sleep 30
 
     pkill -f ./peernode.o
     sleep 2
