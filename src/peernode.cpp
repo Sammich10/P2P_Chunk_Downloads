@@ -37,8 +37,6 @@ struct peer_info{//struct to store registered peer information
 
 typedef struct sockaddr SA;
 
-std::mutex mtx;
-
 void check(int n, const char *msg);
 
 bool loadConfig(const char filepath[]){//function to load configuration parameters from config file
@@ -171,7 +169,7 @@ int downloadFile(int socket, char filename[]){
 
     //create path to download folder
     std::string n_host_folder = host_folder + "/" + filename;
-    mtx.lock();
+
     FILE *fp = fopen(n_host_folder.c_str(), "w");
     //To time the speed of transfer
     clock_t start;
@@ -190,8 +188,6 @@ int downloadFile(int socket, char filename[]){
     total_dl_size +=bytes_recvd;
     total_dl_time +=dur;
     fclose(fp);
-
-    mtx.unlock();
 
 
     if(valread < 0){
@@ -447,13 +443,11 @@ void handleConnection(int client_socket){
     if(strcmp(buffer, "download") == 0){
         recv(client_socket, &h, sizeof(h), 0);
         recv(client_socket, buffer, h.length, 0);
-        printf("Download request for file name: %s\n", buffer);
+        printf("Received download request for file name: %s\n", buffer);
         std::string file_name = buffer;
 
         std::string path = get_current_dir_name();
         path += "/" + host_folder + "/" + file_name;
-
-        mtx.lock();
 
         FILE *fp = fopen(path.c_str(), "rb");
 
@@ -465,7 +459,6 @@ void handleConnection(int client_socket){
             close(client_socket);
             //if the file is not found, update the server and tell it to remove the file from the list of hosted files
             update_hosted_files(sconnect(server_ip, SERVER_PORT), 1, (char*)file_name.c_str());
-            mtx.unlock();
             return;
         }else{
             //printf("File found\n");
@@ -490,7 +483,6 @@ void handleConnection(int client_socket){
         printf("Sent %zu bytes in %.16f seconds\n", bytes_sent, dur);
         
         close(client_socket);
-        mtx.unlock();
 
     }
 
