@@ -1,20 +1,80 @@
 #!/bin/bash
 
 if [ ! -d "peer_files" ]; then
-  exit
+  mkdir "peer_files"
 fi
 
-if [ ! -d "peer_configs" ]; then
-  mkdir "peer_configs"
-  for i in {1..16}
-  do
-    j=$((8082 + ${i}))
-    echo "peer${i}" > "peer_configs/peer${i}.cfg"
-    echo "PORT ${j}" >> "peer_configs/peer${i}.cfg"
-
-  done
-  echo "PORT 8080" > "peer_configs/server.cfg"
+if [ ! -d "peer_configs/weak_peers" ]; then
+  mkdir "peer_configs/weak_peers"
 fi
+
+if [ ! -d "peer_configs/super_peers" ]; then
+  mkdir "peer_configs/super_peers"
+fi
+
+echo Initializing peer configs...
+
+for i in {1..24}
+do
+  j=$((8082 + ${i}))
+  echo "PEER_ID peer${i}" > "peer_configs/weak_peers/peer${i}.cfg"
+  echo "IP 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+  echo "PORT ${j}" >> "peer_configs/weak_peers/peer${i}.cfg"
+  echo "HOST_FOLDER peer_files/p${i}_files" >> "peer_configs/weak_peers/peer${i}.cfg"
+  if (( i <= 3)); then
+    echo "SUPER_PEER_ADDR 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+    echo "SUPER_PEER_PORT 8060" >> "peer_configs/weak_peers/peer${i}.cfg"
+  elif (( i <= 6)); then
+    echo "SUPER_PEER_ADDR 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+    echo "SUPER_PEER_PORT 8061" >> "peer_configs/weak_peers/peer${i}.cfg"
+  elif (( i <= 9)); then
+    echo "SUPER_PEER_ADDR 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+    echo "SUPER_PEER_PORT 8062" >> "peer_configs/weak_peers/peer${i}.cfg"
+  elif (( i <= 12)); then
+    echo "SUPER_PEER_ADDR 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+    echo "SUPER_PEER_PORT 8063" >> "peer_configs/weak_peers/peer${i}.cfg"
+  elif (( i <= 15)); then
+    echo "SUPER_PEER_ADDR 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+    echo "SUPER_PEER_PORT 8064" >> "peer_configs/weak_peers/peer${i}.cfg"
+  elif (( i <= 18)); then
+    echo "SUPER_PEER_ADDR 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+    echo "SUPER_PEER_PORT 8065" >> "peer_configs/weak_peers/peer${i}.cfg"
+  elif (( i <= 21)); then
+    echo "SUPER_PEER_ADDR 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+    echo "SUPER_PEER_PORT 8066" >> "peer_configs/weak_peers/peer${i}.cfg"
+  elif (( i <= 24)); then
+    echo "SUPER_PEER_ADDR 127.0.0.1" >> "peer_configs/weak_peers/peer${i}.cfg"
+    echo "SUPER_PEER_PORT 8067" >> "peer_configs/weak_peers/peer${i}.cfg"
+  fi
+done
+
+echo "PEER_ID superpeer1" > "peer_configs/super_peers/superpeer1.cfg"
+echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer1.cfg"
+echo "PORT 8060" >> "peer_configs/super_peers/superpeer1.cfg"
+echo "PEER_ID superpeer2" > "peer_configs/super_peers/superpeer2.cfg"
+echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer2.cfg"
+echo "PORT 8061" >> "peer_configs/super_peers/superpeer2.cfg"
+echo "PEER_ID superpeer3" > "peer_configs/super_peers/superpeer3.cfg"
+echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer3.cfg"
+echo "PORT 8062" >> "peer_configs/super_peers/superpeer3.cfg"
+echo "PEER_ID superpeer4" > "peer_configs/super_peers/superpeer4.cfg"
+echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer4.cfg"
+echo "PORT 8063" >> "peer_configs/super_peers/superpeer4.cfg"
+echo "PEER_ID superpeer5" > "peer_configs/super_peers/superpeer5.cfg"
+echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer5.cfg"
+echo "PORT 8064" >> "peer_configs/super_peers/superpeer5.cfg"
+echo "PEER_ID superpeer6" > "peer_configs/super_peers/superpeer6.cfg"
+echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer6.cfg"
+echo "PORT 8065" >> "peer_configs/super_peers/superpeer6.cfg"
+echo "PEER_ID superpeer7" > "peer_configs/super_peers/superpeer7.cfg"
+echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer7.cfg"
+echo "PORT 8066" >> "peer_configs/super_peers/superpeer7.cfg"
+echo "PEER_ID superpeer8" > "peer_configs/super_peers/superpeer8.cfg"
+echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer8.cfg"
+echo "PORT 8067" >> "peer_configs/super_peers/superpeer8.cfg"
+
+
+echo Initializing peer files...
 
 for i in {1..16}
 do
@@ -22,8 +82,6 @@ do
   then
     mkdir "peer_files/p${i}_files"
   fi
-  
-  rm peer_files/p${i}_files/*
 
   cp "peer_files/peerfiles/t128b.txt" "peer_files/p${i}_files/t128b${i}.txt"
   cp "peer_files/peerfiles/t512b.txt" "peer_files/p${i}_files/t512b${i}.txt"
@@ -32,6 +90,8 @@ do
   cp "peer_files/peerfiles/t32kb.txt" "peer_files/p${i}_files/t32kb${i}.txt"
 
 done
+
+echo Initializing test files...
 
 for i in {1..5}
 do
@@ -65,8 +125,6 @@ done
 if [ ! -d "tests" ]; then
   mkdir "tests"
 fi
-
-rm tests/*
 
 for i in {1..16}
 do
