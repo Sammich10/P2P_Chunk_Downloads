@@ -358,9 +358,7 @@ int downloadFile(int socket, char filename[]){//download a file specified by it'
     
     int valread;
     char read_buffer[BUFSIZE] ={0};
-
     int sock = socket;
-    
     MessageHeader h;
     h.length = strlen("download");
     send(sock, &h, sizeof(h), 0); //send message header
@@ -437,41 +435,30 @@ int downloadFile(int socket, char filename[]){//download a file specified by it'
     return 0;
 }
 
-void downloadFromPeer(std::vector<std::string> peers, char* file_name){//download a file from a peer given a list of peers that have the file, and the file name
-    //choose a random peer to download from
-    int random_peer;
-    if(peers.size() > 1){
-        random_peer = (rand() % (peers.size()-1));
-    }else{
-        random_peer = 0;
-    }
-    //get the ip and port of the peer
-    std::string peer_ip = peers[random_peer].substr(0, peers[random_peer].find(":"));
-    int peer_port = std::stoi(peers[random_peer].substr(peers[random_peer].find(":")+1, peers[random_peer].length()));
+void downloadFromPeer(std::string peer_ip, int peer_port, char* file_name){//download a file from a peer given a list of peers that have the file, and the file name
 
     printf("Connecting to peer %s:%d\n", peer_ip.c_str(), peer_port);
     //connect to the peer
     int peer_sock = sconnect((char*)peer_ip.c_str(), peer_port);
     //download the file
     int dls = downloadFile(peer_sock, file_name);
-    
-    //if the download failed, remove the peer from the list and try again with a different peer
+    close(peer_sock);
     if(dls == -1){
         printf("Error downloading file from peer %s:%d\n", peer_ip.c_str(), peer_port);
-        peers.erase(peers.begin() + random_peer);
-        if(peers.size() == 0){
-            //if there are no more peers to try, exit
-            printf("No peers available to download file from\n");
-            return;
-        }
-        downloadFromPeer(peers, file_name);
     }
-    
+    else{
+        printf("File downloaded successfully from peer %s:%d\n", peer_ip.c_str(), peer_port);
+    }    
 
 }
 
 void findPeers(char* file_name){//query the super peer that acts as an indexing server for the specified file name
-    int sock = sconnect(super_peer_ip, SERVER_PORT);
+    int sock = sconnect(super_peer_ip, super_peer_port);
+
+    if(sock < 0){
+        printf("error connecting to super peer\n");
+        return;
+    }
 
     std::vector <std::string> valid_peers;
     
@@ -479,7 +466,7 @@ void findPeers(char* file_name){//query the super peer that acts as an indexing 
     h.length = strlen("find");
     check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
     check(send(sock, "find", strlen("find"), 0), "error sending find request to super peer",false);
-
+    //send query message to super peer
     QueryMessage qm;
     qm.message_id = generateQueryName();
     qm.ttl = 5;
@@ -489,60 +476,8 @@ void findPeers(char* file_name){//query the super peer that acts as an indexing 
     qm.origin_port = port;
 
     std::vector<uint8_t> msg = serializeQueryMessage(qm);
-    //h.length = msg.size();
-    //check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
     check(send(sock, msg.data(), msg.size(), 0), "error sending query message to super peer",false);
 
-    //clock_t start = clock(); //start timer
-    /*
-    
-    std::string qid = generateQueryName();
-    h.length = qid.length();
-    check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, qid.c_str(), qid.length(), 0), "error sending query id to super peer",false);
-    h.length = strlen(file_name);
-    check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, file_name, strlen(file_name), 0), "error sending file name to server",false);
-    int ttl = 5;
-    h.length = sizeof(ttl);
-    check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, &ttl, sizeof(ttl), 0), "error sending ttl to server",false);
-    std::string ipp = ip + ":" + std::to_string(port);
-    h.length = ipp.length();
-    check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, ipp.c_str(), ipp.length(), 0), "error sending ip:port to server",false);
-    */
-
-   
-
-    /*
-    int num_peers;
-    check(recv(sock, &num_peers, sizeof(num_peers), 0), "error receiving number of peers from server",false);
-
-    if(num_peers == 0){
-        printf("No peers found for file %s\n", file_name);
-    }else{
-        printf("Found %d peer(s) for file %s\n", num_peers, file_name);
-        
-        for(int i = 0; i < num_peers; i++){
-            std::string peer_ip_port;
-            char buffer[BUFSIZE] = {0};
-
-            check(recv(sock, &h, sizeof(h), 0), "error receiving message header",false); //receive message header
-            check(recv(sock, &buffer, h.length, 0), "error receiving peer port from server",false);
-            peer_ip_port = buffer;
-            //printf("Peer %s\n",peer_ip_port.c_str());  
-            valid_peers.push_back(peer_ip_port);
-        }
-    }
-
-    clock_t end = clock(); //end timer
-    double time_taken = double(end - start) / double(CLOCKS_PER_SEC);
-
-    printf("Time taken to find peers: %f seconds\n",time_taken);
-
-    return valid_peers;
-    */
     close(sock);
 }
 
@@ -587,6 +522,7 @@ int update_hosted_files(int sock, int operation, char filename[]){
         h.length = strlen(filename);
         check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
         check(send(sock, filename, strlen(filename), 0), "error sending filename to server",false);
+        close(sock);
     }
     else if(operation == 1){//add file
         h.length = strlen(filename);
@@ -597,17 +533,20 @@ int update_hosted_files(int sock, int operation, char filename[]){
         check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
         check(send(sock, filename, strlen(filename), 0), "error sending filename to server",false);
         check(send(sock, &filesize, sizeof(filesize), 0), "error sending filesize to server",false);
+        close(sock);
     }
     
     return 0;
 }
 
 //register the peer with the server
-int register_peer(int port){
+int register_peer(){
 
     std::vector<file_info> hostedFiles = getFileList();
 
-    int sock = sconnect(super_peer_ip, SERVER_PORT);
+    int sock = sconnect(super_peer_ip, super_peer_port);
+    
+    printf("Registering peer with super peer %s:%d\n",super_peer_ip,super_peer_port);
 
     check(sock, "error connecting to super peer for registration",true);
     
@@ -617,10 +556,11 @@ int register_peer(int port){
     check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
     check(send(sock, "register", strlen("register"), 0), "error sending message body to server",true);
     
-    h.length = sizeof(int);
-    int num_hosted_files = hostedFiles.size();
+    h.length = peer_id.length();
     check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
     check(send(sock, peer_id.c_str(), peer_id.length(), 0), "error sending peer id to server",true);
+    int num_hosted_files = hostedFiles.size();
+    h.length = sizeof(int);
     check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
     check(send(sock, &port, sizeof(port), 0), "error sending port to server",true);
     check(send(sock, &num_hosted_files, sizeof(num_hosted_files), 0), "error sending number of files to server",true);
@@ -639,7 +579,7 @@ int register_peer(int port){
 }
 
 void unregister_peer(){
-    int sock = sconnect(super_peer_ip, SERVER_PORT);
+    int sock = sconnect(super_peer_ip, super_peer_port);
 
     check(sock, "error connecting to super peer for unregistration",true);
     
@@ -664,7 +604,7 @@ void handleConnection(int client_socket){
     //printf("Received message: %s\n", buffer);
 
     if(strcmp(buffer, "QueryHit")==0){
-        printf("Received QueryHit\n");
+        //printf("Received QueryHit\n");
         std::vector<uint8_t> serialized_data;
         QueryHitMessage qhm;
         char buffer[BUFSIZE];
@@ -675,10 +615,18 @@ void handleConnection(int client_socket){
 
         std::vector<uint8_t> serialized_vector(serialized_data.begin(),serialized_data.end());
         qhm = deserializeQueryHitMessage(serialized_vector);
-        printf("Received QueryHit from %s\n", qhm.peer_id.c_str());
+        printf("Received QueryHit for file: %s at: %s:%d\n",qhm.file_name.c_str(), qhm.ip_address.c_str(), qhm.port);
+
+        close(client_socket);
+
+        //send download request to the peer that has the file
+        
+        strcpy((char*)qhm.file_name.c_str(), qhm.file_name.c_str());
+        downloadFromPeer(qhm.ip_address, qhm.port, (char*)qhm.file_name.c_str());
+
     }
 
-    if(strcmp(buffer, "download") == 0){
+    else if(strcmp(buffer, "download") == 0){
         recv(client_socket, &h, sizeof(h), 0);
         recv(client_socket, buffer, h.length, 0);
         printf("Received download request for file name: %s\n", buffer);
@@ -697,7 +645,7 @@ void handleConnection(int client_socket){
             send(client_socket, "File not found", h.length, 0);
             close(client_socket);
             //if the file is not found, update the server and tell it to remove the file from the list of hosted files
-            update_hosted_files(sconnect(super_peer_ip, SERVER_PORT), 1, (char*)file_name.c_str());
+            update_hosted_files(sconnect(super_peer_ip, super_peer_port), 1, (char*)file_name.c_str());
             return;
         }else{
             //printf("File found\n");
@@ -748,48 +696,72 @@ void interruptHandler(int sig){
     exit(0);
 }
 
-int main(int argc, char *argv[]){
+void loadDownloadList(char* file_name){
+    std::ifstream file(file_name);
+    std::string str; 
+    while (std::getline(file, str))
+    {
+        findPeers((char*)str.c_str());
+    }
+    
+    return; 
+}
 
+void interactiveMode(){
+    char buffer[BUFSIZE];
+    while(1){
+        printf("Enter file name to download: ");
+        scanf("%s", buffer);
+        if(strcmp(buffer, "exit") == 0){
+            exit(0);
+        }else{
+            findPeers(buffer);
+        }
+    }
+}
+
+void handle_sigpipe(int sig) {
+    void *array[10];
+    size_t size;
+
+    // get void*'s for all entries on the stack
+    size = backtrace(array, 10);
+
+    // print out all the frames to stderr
+    fprintf(stderr, "Error: signal %d:\n", sig);
+    backtrace_symbols_fd(array, size, STDOUT_FILENO);
+    //exit(1);
+}
+
+int main(int argc, char *argv[]){
+    bool interactive = false;
     if(argc < 2){
-        printf("Usage: <config file path>\nLoading default config parameters: %s\n", CONFIG_FILE_PATH);
+        printf("Usage: <config file path> <files_to_download.txt>\nLoading default config parameters: %s\n", CONFIG_FILE_PATH);
         loadConfig(CONFIG_FILE_PATH);
     }else{
         loadConfig(argv[1]);
     }
     checkDownloadDirect();
     checkUploadDirect();
-    
+
     atexit(unregister_peer);
+    signal(SIGPIPE, handle_sigpipe);
     signal(SIGINT, interruptHandler);
 
-
-    register_peer(port);
+    register_peer();
     std::thread t1(listenForConnections);
     t1.detach();
+    char test[] = "./test/test.txt";
+    loadDownloadList(test);
 
-    std::string input;
-
-    cout << "Enter 'exit' to exit" << endl;
-    cout << "Enter a file name to find peers hosting it, and download it if there is a host" << endl;
-    while(1){
-        std::cin >> input;
-        if(input == "wait"){
-            std::cin >> input;
-            std::this_thread::sleep_for(std::chrono::seconds(atoi(input.c_str())));
-            cout<<"Waited for "<<input<<" seconds"<<endl;
-            continue;
-        }
-        else if(input == "update"){
-            update_hosted_files_all(sconnect(super_peer_ip, SERVER_PORT));
-        }
-        else if(input != "exit"){
-            findPeers((char*)input.c_str());
-            
-        }else if(input == "exit"){
-            break;
-        }
+    if(argc == 3){
+        sleep(5);
+        loadDownloadList(argv[2]);
     }
 
-    exit(0);
+    if(interactive){
+        interactiveMode();
+    }
+
     return 0;
 }

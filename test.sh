@@ -1,7 +1,5 @@
 #!/bin/bash
 
-make clean; make
-
 if [ ! -d "logs" ]; then
   mkdir "logs"
 fi
@@ -13,38 +11,24 @@ if [ ! -d "results" ]; then
   mkdir "results"
 fi
 
-./server.o peer_configs/server.cfg > logs/server.log &
+echo "Starting 3 super peers"
+
+./superpeer.o peer_configs/super_peers/superpeer1.cfg > logs/superpeer1.log &
+./superpeer.o peer_configs/super_peers/superpeer2.cfg > logs/superpeer2.log &
+./superpeer.o peer_configs/super_peers/superpeer3.cfg > logs/superpeer3.log &
+
+
 
 sleep 5
-: '
-./peernode.o peer_configs/peer1.cfg < tests/test3.txt < tests/test2.txt < tests/exit.txt > logs/peer1.log &
 
-./peernode.o peer_configs/peer2.cfg < tests/test1.txt < tests/test3.txt < tests/exit.txt > logs/peer2.log &
+echo "Starting 9 peers"
 
-./peernode.o peer_configs/peer3.cfg < tests/test2.txt <tests/test1.txt < tests/exit.txt > logs/peer3.log &
-'
-
-cat tests/test3.txt tests/test2.txt tests/exit.txt | ./peernode.o peer_configs/peer1.cfg > logs/peer1.log &
-
-cat tests/test1.txt tests/test3.txt tests/exit.txt | ./peernode.o peer_configs/peer2.cfg > logs/peer2.log &
-
-cat tests/test2.txt tests/test1.txt tests/exit.txt | ./peernode.o peer_configs/peer3.cfg > logs/peer3.log &
-
-
-sleep  1
-echo "testing, please wait..."
-sleep 15
-echo "5"
-sleep 1
-echo "4"
-sleep 1
-echo "3"
-sleep 1
-echo "2"
-sleep 1
-echo "1"
-sleep 1
-
-pkill -f ./peernode.o
-sleep 2
-pkill -f ./server.o
+./peernode.o peer_configs/weak_peers/peer1.cfg tests/test9.txt > logs/peer1.log &
+./peernode.o peer_configs/weak_peers/peer2.cfg tests/test8.txt > logs/peer2.log &
+./peernode.o peer_configs/weak_peers/peer3.cfg tests/test7.txt > logs/peer3.log &
+./peernode.o peer_configs/weak_peers/peer4.cfg tests/test6.txt > logs/peer4.log &
+./peernode.o peer_configs/weak_peers/peer5.cfg tests/test4.txt > logs/peer5.log &
+./peernode.o peer_configs/weak_peers/peer6.cfg tests/test5.txt > logs/peer6.log &
+./peernode.o peer_configs/weak_peers/peer7.cfg tests/test3.txt > logs/peer7.log &
+./peernode.o peer_configs/weak_peers/peer8.cfg tests/test2.txt > logs/peer8.log &
+./peernode.o peer_configs/weak_peers/peer9.cfg tests/test1.txt > logs/peer9.log &

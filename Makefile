@@ -4,10 +4,10 @@ RM=rm -f
 CPPFLAGS = -Wall -Wextra -pedantic
 SRCDIR = src/
 
-all:server.o peernode.o 
+all:superpeer.o peernode.o 
 
-server.o : $(SRCDIR)server.cpp 
-	$(CXX) -o server.o $(SRCDIR)server.cpp $(CPPFLAGS)
+superpeer.o : $(SRCDIR)superpeer.cpp 
+	$(CXX) -o superpeer.o $(SRCDIR)superpeer.cpp $(CPPFLAGS)
 
 
 peernode.o : $(SRCDIR)peernode.cpp

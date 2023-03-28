@@ -1,5 +1,18 @@
 #!/bin/bash
 
+if [ $# -ne 1 ]; then
+  echo "Usage: init.sh <type(a2a|tree)>"
+  exit 1
+fi
+if [ $1 != "a2a" ] && [ $1 != "tree" ]; then
+  echo "Usage: init.sh <type(a2a|tree)>"
+  exit 1
+fi
+
+
+
+make;
+
 if [ ! -d "peer_files" ]; then
   mkdir "peer_files"
 fi
@@ -48,6 +61,8 @@ do
   fi
 done
 
+echo "Initializing super peer configs..."
+
 echo "PEER_ID superpeer1" > "peer_configs/super_peers/superpeer1.cfg"
 echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer1.cfg"
 echo "PORT 8060" >> "peer_configs/super_peers/superpeer1.cfg"
@@ -73,10 +88,26 @@ echo "PEER_ID superpeer8" > "peer_configs/super_peers/superpeer8.cfg"
 echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer8.cfg"
 echo "PORT 8067" >> "peer_configs/super_peers/superpeer8.cfg"
 
+if [ "$1" = "a2a" ]; then
+  echo "Setting up all to all network..."
+  for i in {0..7}; do
+    for j in {0..7}; do
+      if (( i != j )); then
+      echo "NEIGHBOR 127.0.0.1:806$j" >> "peer_configs/super_peers/superpeer$((i+1)).cfg"
+      fi
+    done
+  done
+elif [ "$1" = "tree" ]; then
+  echo "Setting up tree network..."
+  for i in {0..6}; do
+    echo "NEIGHBOR 127.0.0.1:806$(($i+1))" >> "peer_configs/super_peers/superpeer${i}.cfg"
+  done
+fi
+
 
 echo Initializing peer files...
 
-for i in {1..16}
+for i in {1..24}
 do
   if [ ! -d "peer_files/p${i}_files" ]
   then
@@ -126,26 +157,15 @@ if [ ! -d "tests" ]; then
   mkdir "tests"
 fi
 
-for i in {1..16}
+for i in {1..24}
 do
-  echo "wait 3" > "tests/test${i}.txt"
   echo "t128b${i}.txt">> "tests/test${i}.txt"
   echo "t512b${i}.txt">> "tests/test${i}.txt"
   echo "t2kb${i}.txt">> "tests/test${i}.txt"
   echo "t8kb${i}.txt">> "tests/test${i}.txt"
   echo "t32kb${i}.txt">> "tests/test${i}.txt"
-  echo "update" >> "tests/test${i}.txt"
-  echo "wait 4" >> "tests/test${i}.txt"
 done
-
-echo "wait 10" > "tests/wait10.txt"
-echo "wait 20" > "tests/wait20.txt"
-echo "wait 100" > "tests/wait100.txt"
-echo "wait 10" > "tests/exit.txt"
-echo "exit" >> "tests/exit.txt"
 
 if [ ! -d "logs" ]; then
   mkdir "logs"
 fi
-
-rm logs/*
