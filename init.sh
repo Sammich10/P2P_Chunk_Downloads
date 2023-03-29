@@ -63,51 +63,58 @@ done
 
 echo "Initializing super peer configs..."
 
-echo "PEER_ID superpeer1" > "peer_configs/super_peers/superpeer1.cfg"
-echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer1.cfg"
-echo "PORT 8060" >> "peer_configs/super_peers/superpeer1.cfg"
-echo "PEER_ID superpeer2" > "peer_configs/super_peers/superpeer2.cfg"
-echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer2.cfg"
-echo "PORT 8061" >> "peer_configs/super_peers/superpeer2.cfg"
-echo "PEER_ID superpeer3" > "peer_configs/super_peers/superpeer3.cfg"
-echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer3.cfg"
-echo "PORT 8062" >> "peer_configs/super_peers/superpeer3.cfg"
-echo "PEER_ID superpeer4" > "peer_configs/super_peers/superpeer4.cfg"
-echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer4.cfg"
-echo "PORT 8063" >> "peer_configs/super_peers/superpeer4.cfg"
-echo "PEER_ID superpeer5" > "peer_configs/super_peers/superpeer5.cfg"
-echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer5.cfg"
-echo "PORT 8064" >> "peer_configs/super_peers/superpeer5.cfg"
-echo "PEER_ID superpeer6" > "peer_configs/super_peers/superpeer6.cfg"
-echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer6.cfg"
-echo "PORT 8065" >> "peer_configs/super_peers/superpeer6.cfg"
-echo "PEER_ID superpeer7" > "peer_configs/super_peers/superpeer7.cfg"
-echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer7.cfg"
-echo "PORT 8066" >> "peer_configs/super_peers/superpeer7.cfg"
-echo "PEER_ID superpeer8" > "peer_configs/super_peers/superpeer8.cfg"
-echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer8.cfg"
-echo "PORT 8067" >> "peer_configs/super_peers/superpeer8.cfg"
+for i in {1..10}; do
+  j=$((8059 + ${i}))
+  echo "PEER_ID superpeer${i}" > "peer_configs/super_peers/superpeer${i}.cfg"
+  echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer${i}.cfg"
+  echo "PORT ${j}" >> "peer_configs/super_peers/superpeer${i}.cfg"
+done
 
 if [ "$1" = "a2a" ]; then
-  echo "Setting up all to all network..."
-  for i in {0..7}; do
-    for j in {0..7}; do
+  echo "Configuring super peers for all to all network..."
+  for i in {0..9}; do
+    for j in {0..9}; do
       if (( i != j )); then
       echo "NEIGHBOR 127.0.0.1:806$j" >> "peer_configs/super_peers/superpeer$((i+1)).cfg"
       fi
     done
   done
 elif [ "$1" = "tree" ]; then
-  echo "Setting up tree network..."
-  for i in {0..6}; do
-    echo "NEIGHBOR 127.0.0.1:806$(($i+1))" >> "peer_configs/super_peers/superpeer${i}.cfg"
-  done
+  echo "Configuring super peers for tree network..."
+  
+  echo "NEIGHBOR 127.0.0.1:8061" >> "peer_configs/super_peers/superpeer1.cfg"
+  echo "NEIGHBOR 127.0.0.1:8062" >> "peer_configs/super_peers/superpeer1.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8060" >> "peer_configs/super_peers/superpeer2.cfg"
+  echo "NEIGHBOR 127.0.0.1:8063" >> "peer_configs/super_peers/superpeer2.cfg"
+  echo "NEIGHBOR 127.0.0.1:8064" >> "peer_configs/super_peers/superpeer2.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8065" >> "peer_configs/super_peers/superpeer3.cfg"
+  echo "NEIGHBOR 127.0.0.1:8066" >> "peer_configs/super_peers/superpeer3.cfg"
+  echo "NEIGHBOR 127.0.0.1:8060" >> "peer_configs/super_peers/superpeer3.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8067" >> "peer_configs/super_peers/superpeer4.cfg"
+  echo "NEIGHBOR 127.0.0.1:8068" >> "peer_configs/super_peers/superpeer4.cfg"
+  echo "NEIGHBOR 127.0.0.1:8061" >> "peer_configs/super_peers/superpeer4.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8069" >> "peer_configs/super_peers/superpeer5.cfg"
+  echo "NEIGHBOR 127.0.0.1:8061" >> "peer_configs/super_peers/superpeer5.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8062" >> "peer_configs/super_peers/superpeer6.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8062" >> "peer_configs/super_peers/superpeer7.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8063" >> "peer_configs/super_peers/superpeer8.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8063" >> "peer_configs/super_peers/superpeer9.cfg"
+
+  echo "NEIGHBOR 127.0.0.1:8064" >> "peer_configs/super_peers/superpeer10.cfg"
 fi
 
 
 echo Initializing peer files...
 
-for i in {1..24}
+for i in {1..30}
 do
   if [ ! -d "peer_files/p${i}_files" ]
   then
@@ -157,7 +164,7 @@ if [ ! -d "tests" ]; then
   mkdir "tests"
 fi
 
-for i in {1..24}
+for i in {1..30}
 do
   echo "t128b${i}.txt">> "tests/test${i}.txt"
   echo "t512b${i}.txt">> "tests/test${i}.txt"

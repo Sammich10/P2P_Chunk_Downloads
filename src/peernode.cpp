@@ -672,9 +672,9 @@ void handleConnection(int client_socket){
         close(client_socket);
         
 
+    }else{
+        close(client_socket);
     }
-
-    close(client_socket);
 }
 
 void listenForConnections(){
@@ -696,12 +696,14 @@ void interruptHandler(int sig){
     exit(0);
 }
 
+//if there was a list of files to download passed as an argument, download them
 void loadDownloadList(char* file_name){
     std::ifstream file(file_name);
     std::string str; 
     while (std::getline(file, str))
     {
         findPeers((char*)str.c_str());
+        sleep(1);
     }
     
     return; 
@@ -716,6 +718,7 @@ void interactiveMode(){
             exit(0);
         }else{
             findPeers(buffer);
+            
         }
     }
 }
@@ -755,8 +758,9 @@ int main(int argc, char *argv[]){
     loadDownloadList(test);
 
     if(argc == 3){
-        sleep(5);
+        sleep(2);
         loadDownloadList(argv[2]);
+        sleep(10);
     }
 
     if(interactive){
