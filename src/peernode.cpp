@@ -1,4 +1,5 @@
 #include "dependencies.h"
+#include "assist/message_utils.hpp"
 
 #define SERVER_PORT 8060
 #define CONFIG_FILE_PATH "./test/peerconfigtest.cfg"
@@ -22,46 +23,11 @@ double total_dl_time = 0;
 
 namespace fs = std::filesystem;
 
-struct MessageHeader {
-    uint32_t length; // Length of message data in bytes
-};
+typedef struct sockaddr SA;
 
-struct file_info{//struct to store file information
-	std::string file_name;
-	int file_size;
-};
+peer_info my_info;
 
 std::vector<file_info> fileList;
-
-struct Message{
-    std::string length;
-    std::string content;
-};
-
-struct peer_info{//struct to store registered peer information
-	char ip[15];
-	uint16_t port;
-	std::vector<file_info> files;
-};
-
-struct QueryMessage{
-    std::string message_id;
-    std::string file_name;
-    int ttl;
-    std::string origin_peer_id;
-    std::string origin_ip_address;
-    int origin_port;
-};
-
-struct QueryHitMessage{
-    std::string message_id;
-    std::string file_name;
-    std::string peer_id;
-    std::string ip_address;
-    int port;
-};
-
-typedef struct sockaddr SA;
 
 std::shared_mutex directoryMutex;
 std::mutex mtx;
@@ -89,12 +55,15 @@ bool loadConfig(const char filepath[]){//function to load configuration paramete
 
         if(param == "PEER_ID"){
             peer_id = value;
+            my_info.peer_id = peer_id;
         }
         else if(param == "IP"){
             ip = value;
+            strcpy(my_info.ip,ip.c_str());
         }
 		else if(param == "PORT"){
 			port = stoi(value);
+            my_info.port = port;
 		}
         else if(param == "HOST_FOLDER"){
             host_folder = value;
@@ -117,11 +86,12 @@ bool loadConfig(const char filepath[]){//function to load configuration paramete
 /*** Helper functions for peer ***/
 
 void check(int n, const char *msg, bool fatal){//function to check for errors, print error message and exit if fatal
+    std::string err = peer_id + ":" + msg;
 	if(n<0){
-		perror(msg);
+		perror(err.c_str());
 	}
     if(n < 0 && fatal){
-        perror(msg);
+        perror(err.c_str());
         exit(1);
     }
 }
@@ -168,6 +138,7 @@ void updateFileList(){//update the list of files in the upload directory
         f.file_size = fs::file_size(entry.path());
         fileList.push_back(f);
     }
+    my_info.files = fileList;
 }
 
 std::vector<file_info> getFileList(){//return the list of files in the upload directory
@@ -209,100 +180,6 @@ std::string generateQueryName() {//generate a unique query name for each query
     return name_ss.str();
 }
 
-std::vector<uint8_t> serializeQueryMessage(QueryMessage& message) {
-    std::vector<uint8_t> buffer;
-    uint32_t message_id_length = message.message_id.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message_id_length), reinterpret_cast<uint8_t*>(&message_id_length) + sizeof(message_id_length));
-    buffer.insert(buffer.end(), message.message_id.begin(), message.message_id.end());
-    uint32_t file_name_length = message.file_name.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&file_name_length), reinterpret_cast<uint8_t*>(&file_name_length) + sizeof(file_name_length));
-    buffer.insert(buffer.end(), message.file_name.begin(), message.file_name.end());
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message.ttl), reinterpret_cast<uint8_t*>(&message.ttl) + sizeof(message.ttl));
-    uint32_t origin_peer_id_length = message.origin_peer_id.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&origin_peer_id_length), reinterpret_cast<uint8_t*>(&origin_peer_id_length) + sizeof(origin_peer_id_length));
-    buffer.insert(buffer.end(), message.origin_peer_id.begin(), message.origin_peer_id.end());
-    uint32_t origin_ip_address_length = message.origin_ip_address.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&origin_ip_address_length), reinterpret_cast<uint8_t*>(&origin_ip_address_length) + sizeof(origin_ip_address_length));
-    buffer.insert(buffer.end(), message.origin_ip_address.begin(), message.origin_ip_address.end());
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message.origin_port), reinterpret_cast<uint8_t*>(&message.origin_port) + sizeof(message.origin_port));
-    
-    return buffer;
-}
-
-QueryMessage deserializeQueryMessage(std::vector<uint8_t>& buffer) {
-    QueryMessage message;
-    
-    uint32_t offset = 0;
-    
-    uint32_t message_id_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(message_id_length);
-    message.message_id.assign(reinterpret_cast<const char*>(&buffer[offset]), message_id_length);
-    offset += message_id_length;
-    uint32_t file_name_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(file_name_length);
-    message.file_name.assign(reinterpret_cast<const char*>(&buffer[offset]), file_name_length);
-    offset += file_name_length;
-    message.ttl = *reinterpret_cast<const int*>(&buffer[offset]);
-    offset += sizeof(message.ttl);
-    uint32_t origin_peer_id_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(origin_peer_id_length);
-    message.origin_peer_id.assign(reinterpret_cast<const char*>(&buffer[offset]), origin_peer_id_length);
-    offset += origin_peer_id_length;
-    uint32_t origin_ip_address_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(origin_ip_address_length);
-    message.origin_ip_address.assign(reinterpret_cast<const char*>(&buffer[offset]), origin_ip_address_length);
-    message.origin_port = *reinterpret_cast<const int*>(&buffer[offset]);
-    offset += sizeof(message.origin_port);
-    
-    return message;
-}
-
-std::vector<uint8_t> serializeQueryHitMessage(QueryHitMessage& message) {
-    std::vector<uint8_t> buffer;
-
-    uint32_t message_id_length = message.message_id.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message_id_length), reinterpret_cast<uint8_t*>(&message_id_length) + sizeof(message_id_length));
-    buffer.insert(buffer.end(), message.message_id.begin(), message.message_id.end());
-    uint32_t file_name_length = message.file_name.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&file_name_length), reinterpret_cast<uint8_t*>(&file_name_length) + sizeof(file_name_length));
-    buffer.insert(buffer.end(), message.file_name.begin(), message.file_name.end());
-    uint32_t peer_id_length = message.peer_id.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&peer_id_length), reinterpret_cast<uint8_t*>(&peer_id_length) + sizeof(peer_id_length));
-    buffer.insert(buffer.end(), message.peer_id.begin(), message.peer_id.end());
-    uint32_t ip_address_length = message.ip_address.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&ip_address_length), reinterpret_cast<uint8_t*>(&ip_address_length) + sizeof(ip_address_length));
-    buffer.insert(buffer.end(), message.ip_address.begin(), message.ip_address.end());
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message.port), reinterpret_cast<uint8_t*>(&message.port) + sizeof(message.port));
-
-    return buffer;
-}
-
-QueryHitMessage deserializeQueryHitMessage(const std::vector<uint8_t>& buffer) {
-    QueryHitMessage message;
-    
-    uint32_t offset = 0;
-    uint32_t message_id_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(message_id_length);
-    message.message_id.assign(reinterpret_cast<const char*>(&buffer[offset]), message_id_length);
-    offset += message_id_length;
-    uint32_t file_name_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(file_name_length);
-    message.file_name.assign(reinterpret_cast<const char*>(&buffer[offset]), file_name_length);
-    offset += file_name_length;
-    uint32_t peer_id_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(peer_id_length);
-    message.peer_id.assign(reinterpret_cast<const char*>(&buffer[offset]), peer_id_length);
-    offset += peer_id_length;
-    uint32_t ip_address_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(ip_address_length);
-    message.ip_address.assign(reinterpret_cast<const char*>(&buffer[offset]), ip_address_length);
-    offset += ip_address_length;
-    message.port = *reinterpret_cast<const int*>(&buffer[offset]);
-    offset += sizeof(message.port);
-    
-    return message;
-}
-
 /*** Socket functions for network communications ***/
 
 int slisten(int port){//function to create a socket and listen for incoming connections on the specified port
@@ -331,7 +208,7 @@ int sconnect(char IP[], int port){//connect to super-peer or another peer node a
     struct sockaddr_in server_addr;
 
     if((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        printf("error creating socket\n");
+        printf("error creating socket connection with %s:%d\n",IP,port);
         return -1;
     }
 
@@ -542,6 +419,26 @@ int update_hosted_files(int sock, int operation, char filename[]){
 //register the peer with the server
 int register_peer(){
 
+    updateFileList();
+    int sock = sconnect(super_peer_ip, super_peer_port);
+    MessageHeader h;
+    h.length = strlen("register");
+    
+    //send the command
+    check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
+    check(send(sock, "register", strlen("register"), 0), "error sending message body to server",true);
+
+
+    char buffer[BUFSIZE] = {0};
+    serialize_peer_info(my_info, buffer);
+
+    send(sock, buffer, BUFSIZE, 0);
+
+    close(sock);
+
+    return 0;
+    /*
+
     std::vector<file_info> hostedFiles = getFileList();
 
     int sock = sconnect(super_peer_ip, super_peer_port);
@@ -552,13 +449,21 @@ int register_peer(){
     
     MessageHeader h;
     h.length = strlen("register");
-
+    
+    //send the command
     check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
     check(send(sock, "register", strlen("register"), 0), "error sending message body to server",true);
     
+    //send the peer id
     h.length = peer_id.length();
     check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
     check(send(sock, peer_id.c_str(), peer_id.length(), 0), "error sending peer id to server",true);
+
+    //send the ip address
+    h.length = ip.length();
+    check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
+    check(send(sock, ip.c_str(), h.length, 0), "error sending ip address to server",true);
+
     int num_hosted_files = hostedFiles.size();
     h.length = sizeof(int);
     check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
@@ -574,26 +479,39 @@ int register_peer(){
 
     }
 
-    close(sock);
+
     return 0;
+
+    */
 }
 
 void unregister_peer(){
     int sock = sconnect(super_peer_ip, super_peer_port);
+    MessageHeader h;
 
     check(sock, "error connecting to super peer for unregistration",true);
-    
-    MessageHeader h;
     h.length = strlen("unregister");
-
+    //send the command
     check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
     check(send(sock, "unregister", strlen("unregister"),0), "error sending file name to server",true);
+
+    char buffer[BUFSIZE] = {0};
+    serialize_peer_info(my_info, buffer);
+
+    send(sock, buffer, BUFSIZE, 0);
+
+    close(sock);
+
+    return;
+   
+    /*
+    //send the peer IP
+    check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
+    check(send(sock, ip.c_str(), h.length, 0), "error sending ip address to server",true);
     h.length = sizeof(int);
     check(send(sock, &h, sizeof(h), 0), "error sending message header",true); //send message header
     check(send(sock, &port, sizeof(port), 0), "error sending port to server",true);
-
-    close(sock);
-    return;
+    */
 }
 
 void handleConnection(int client_socket){
@@ -703,7 +621,7 @@ void loadDownloadList(char* file_name){
     while (std::getline(file, str))
     {
         findPeers((char*)str.c_str());
-        sleep(1);
+        sleep(2);
     }
     
     return; 
@@ -721,6 +639,10 @@ void interactiveMode(){
             
         }
     }
+}
+
+void establishConnection(){
+    return;
 }
 
 void handle_sigpipe(int sig) {
@@ -744,6 +666,12 @@ int main(int argc, char *argv[]){
     }else{
         loadConfig(argv[1]);
     }
+
+    for(int i = 0; i < argc; i++){
+        if(strcmp(argv[i], "-i") == 0){
+            interactive = true;
+        }
+    }
     checkDownloadDirect();
     checkUploadDirect();
 
@@ -752,20 +680,25 @@ int main(int argc, char *argv[]){
     signal(SIGINT, interruptHandler);
 
     register_peer();
+    //std::thread t2(interactiveMode);
+    //t2.detach();
+    //char test[] = "./test/test.txt";
+    //loadDownloadList(test);
+    
     std::thread t1(listenForConnections);
-    t1.detach();
-    char test[] = "./test/test.txt";
-    loadDownloadList(test);
-
     if(argc == 3){
         sleep(2);
+        t1.detach();
         loadDownloadList(argv[2]);
         sleep(10);
+    }else{
+        t1.join();
     }
-
     if(interactive){
-        interactiveMode();
+        std::thread it(interactiveMode);
+        it.detach();
     }
+    
 
     return 0;
 }

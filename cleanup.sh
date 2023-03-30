@@ -1,5 +1,8 @@
 #!/bin/bash
 
+pkill -9 peernode.o
+pkill -9 superpeer.o
+
 make clean
 rm logs/*
 rm results/*

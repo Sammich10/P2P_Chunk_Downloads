@@ -73,6 +73,7 @@ done
 if [ "$1" = "a2a" ]; then
   echo "Configuring super peers for all to all network..."
   for i in {0..9}; do
+  echo "NEIGHBOR 127.0.0.1:8059" >> "peer_configs/super_peers/superpeer$((i+1)).cfg"
     for j in {0..9}; do
       if (( i != j )); then
       echo "NEIGHBOR 127.0.0.1:806$j" >> "peer_configs/super_peers/superpeer$((i+1)).cfg"
@@ -81,7 +82,7 @@ if [ "$1" = "a2a" ]; then
   done
 elif [ "$1" = "tree" ]; then
   echo "Configuring super peers for tree network..."
-  
+
   echo "NEIGHBOR 127.0.0.1:8061" >> "peer_configs/super_peers/superpeer1.cfg"
   echo "NEIGHBOR 127.0.0.1:8062" >> "peer_configs/super_peers/superpeer1.cfg"
 
