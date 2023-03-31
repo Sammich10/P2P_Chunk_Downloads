@@ -1,13 +1,14 @@
 #include "dependencies.h"
 #include "assist/message_utils.hpp"
 #include "assist/message_structs.hpp"
+#include "assist/queues.hpp"
 
 #define PORT 8059
 #define BUFSIZE 1024
 #define SERVER_BACKLOG 100
 #define CONFIG_FILE_PATH "./test/superpeerconfigtest.cfg"
 #define THREAD_POOL_SIZE 15
-#define MAX_CONNECTIONS
+#define MAX_CONNECTIONS 25
 
 std::string super_peer_id;
 std::string ip = "127.0.0.1";
@@ -25,42 +26,9 @@ std::map<std::string, std::string> message_id_map;
 std::mutex mtx;
 std::condition_variable cv;
 
-
-struct node{
-    struct node* next;
-    int *client_socket;
-};
-
-typedef struct node node_t;
-
-node_t* head = NULL;
-node_t* tail = NULL;
-
-void enqueue(int *client_socket){
-    node_t *newnode = (node_t*)malloc(sizeof(node_t));
-    newnode->client_socket = client_socket;
-    newnode->next = NULL;
-    if(tail == NULL){
-        head = newnode;
-    } else{
-        tail->next = newnode;
-    }
-    tail = newnode;
-}
-
-int* dequeue(){
-    if(head == NULL){
-        return NULL;
-    }
-    node_t *temp = head;
-    head = head->next;
-    if(head == NULL){
-        tail = NULL;
-    }
-    int *ret = temp->client_socket;
-    free(temp);
-    return ret;
-}
+SocketQueue socket_queue;
+QueryMessageQueue qm_queue;
+QueryHitMessageQueue qhm_queue;
 
 
 /*** Helper functions for super peer ***/
@@ -109,8 +77,9 @@ void check(int n, const char *msg){
 		perror(err.c_str());
 	}
 }
+/*****************************************************************************************************************/
 
-/*** Core functions for super peer ***/
+/*** Socket functions for super peer ***/
 
 int sconnect(char IP[], int port){//connect to super-peer or another peer node and return the socket
     int sock = 0, client_fd;
@@ -137,6 +106,8 @@ int sconnect(char IP[], int port){//connect to super-peer or another peer node a
     //printf("Connection to server on port %d successful\n",port);
     return sock;
 }
+
+/*** Core functions for super peer ***/
 
 int update_all_peer_files(int client_socket, struct sockaddr_in client_addr){//function to update all peer files
 	MessageHeader h;
@@ -266,80 +237,18 @@ int register_peer(int client_socket){//function to register peer
     close(client_socket);
 
     return 0;
-    
-    
-    /*
-    MessageHeader h;
-	peer_info p;
-	
-	int peer_port;
-	int num_files_int;
-    
-    recv(client_socket, &h, sizeof(h), 0); //receive message header
-    char peer_info[BUFSIZE] = {0};
-    recv(client_socket, peer_info, h.length, 0); //receive peer id
-    p.peer_id = peer_info;
-    
-    memset(peer_info, 0, BUFSIZE);
-    recv(client_socket, &h, sizeof(h), 0); //receive message header
-    recv(client_socket, &peer_info, h.length, 0); //receive peer IP
-    strcpy(p.ip, peer_info);
-
-	recv(client_socket, &h, sizeof(h), 0); //receive message header
-	recv(client_socket, &peer_port, h.length, 0); //receive peer port
-	recv(client_socket, &num_files_int, h.length, 0); //receive number of files
-
-	p.port = peer_port;
-
-
-	if(peers.size() > 0){
-		for(int i=0;(long unsigned int)i < peers.size();i++){
-			if(strcmp(peers[i].ip,p.ip) == 0 && peers[i].port == p.port){
-				printf("Peer %s:%d already registered\n",p.ip,p.port);
-				close(client_socket);
-				return 1;
-			}
-		}
-	}
-    
-    mtx.lock();
-	peers.push_back(p);
-    mtx.unlock();
-	
-	for(int i=0;i<num_files_int;i++){
-		file_info f;
-		char file_name_buffer[BUFSIZE] = {0};
-		
-		recv(client_socket, &h, sizeof(h), 0); //receive message header
-		recv(client_socket, &file_name_buffer, h.length, 0); //receive message body
-		recv(client_socket, &f.file_size, sizeof(f.file_size), 0); //receive file size
-
-		f.file_name = file_name_buffer;
-        mtx.lock();
-		peers.back().files.push_back(f);
-        mtx.unlock();
-	}
-
-	 
-	printf("%s at %s:%d registered successfully\n",p.peer_id.c_str(),p.ip,p.port);
-    close(client_socket);
-	return 0;
-
-    */
 }
 
 int unregister_peer(int client_socket){//function to unregister peer
-
 	char buffer[BUFSIZE] = {0};
     peer_info info;
     if((recv(client_socket, buffer, BUFSIZE, 0))<0){//receive peer info
         printf("Error receiving peer info for unregistration");
-        return 0;
+        return -1;
     }
     deserialize_peer_info(buffer, info);
-
-    //printf("Unregistering %s %s:%d\n",info.peer_id.c_str(),info.ip,info.port);
     /*
+    //print the files the peer is hosting (for testing purposes)
     printf("Files hosted:");
     for (int i = 0; (long unsigned int)i < info.files.size(); i++)
     {
@@ -347,49 +256,24 @@ int unregister_peer(int client_socket){//function to unregister peer
     }
     */
     close(client_socket);
-
-
+    //check if peer is registered and unregister it
 	for(int i=0;(long unsigned int)i<peers.size();i++){
 		if(strcmp(peers[i].ip,info.ip)==0 && peers[i].port==info.port){
             mtx.lock();
 			peers.erase(peers.begin()+i);
-			printf("%s %s:%d unregistered successfully\n",info.peer_id.c_str(),info.ip,info.port);
-			close(client_socket);
+			printf("%s at %s:%d unregistered successfully\n",info.peer_id.c_str(),info.ip,info.port);
             mtx.unlock();
+			close(client_socket);
 			return 0;
 		}
 	}
-
+    //if peer is not registered
     printf("%s %s:%d not found\n",info.peer_id.c_str(),info.ip,info.port);
-
-    return 0;
-    /*
-
-	MessageHeader h;
-	peer_info p;
-	
-	int peer_port;
-    char peer_info[BUFSIZE] = {0};
-    //redeive peer IP
-    recv(client_socket, &h, sizeof(h), 0); //receive message header
-    recv(client_socket, &peer_info, h.length, 0); //receive peer IP
-    strcpy(p.ip, peer_info);
-    //receive peer port
-	recv(client_socket, &h, sizeof(h), 0); //receive message header
-	recv(client_socket, &peer_port, h.length, 0); //receive peer port
-
-	
-	p.port = peer_port;
-
-
-	
-	printf("Peer %s:%d not found\n",p.ip,p.port);
-    close(client_socket);
-	return 0;
-    */
+    return -1;
 }
 
-std::vector<peer_info> queryWeakPeers(std::string file_name){//function to query connected weak peers for a file
+//query all registered weak peers for a file, return a vector of peer_info structs containing the ip and port of the weak peers that have the file
+std::vector<peer_info> queryWeakPeers(std::string file_name){
 	std::vector<peer_info> result;
     mtx.lock();
 	for(int i=0;(long unsigned int)i<peers.size();i++){
@@ -403,11 +287,8 @@ std::vector<peer_info> queryWeakPeers(std::string file_name){//function to query
 	return result;
 }
 
-//send a QueryHitMessage to the peer that sent the QueryMessage to us, it could be a weak peer or a super peer
-//if it is a weak peer, the week peer will handle the QueryHitMessage, if it is a super peer, that super peer
-//will have to forward the QueryHitMessage to the super peer that sent the QueryMessage to it or the weak peer
-//the query originated from. The ip and port of the qm will be used to forward the QueryHitMessage to the correct
-//destination
+
+//send a QueryHitMessage to the specified IP and port
 void sendQueryHitMessage(struct QueryHitMessage qhm, std::string ip, int port){
     //if this QueryMessage is not in our map, it has already been seen, ignore it
     if(message_id_map.find(qhm.message_id) == message_id_map.end()){
@@ -424,21 +305,29 @@ void sendQueryHitMessage(struct QueryHitMessage qhm, std::string ip, int port){
     MessageHeader h;
     char msg[] = "QueryHit";
     h.length = sizeof(msg);
+    std::vector<uint8_t> serialized_data = serializeQueryHitMessage(qhm);
     send(sock, &h, sizeof(h), 0);
     send(sock, msg, sizeof(msg), 0);
+    char rb[10] = {0};
+    if((recv(sock,rb,10,0) < 0)){
+        printf("Error receiving OK QueryHitMessage response\n");
+        close(sock);
+        return;
+    }
     //serialize the QueryHitMessage struct and send it
-    std::vector<uint8_t> serialized_data = serializeQueryHitMessage(qhm);
     send(sock, serialized_data.data(), serialized_data.size(), 0);
     //close the socket
     close(sock);
     
     //remove the message id from the map
     message_id_map.erase(qhm.message_id);
-
     return;
 }
 
-void queryMessageSuperPeers(struct QueryMessage qm){//send a QueryMessage to all super peers
+
+
+//send a QueryMessage to all neighboring super peers
+void queryMessageSuperPeers(struct QueryMessage qm){
     qm.origin_ip_address = ip;
     qm.origin_port = port;
     qm.origin_peer_id = super_peer_id;
@@ -453,15 +342,32 @@ void queryMessageSuperPeers(struct QueryMessage qm){//send a QueryMessage to all
             char msg[] = "msgquery";
             //char response[1];
             h.length = sizeof(msg);
-            send(sock, &h, sizeof(h), 0);
-            send(sock, msg, sizeof(msg), 0);
-            
+            if((send(sock, &h, sizeof(h), 0)) < 0){
+                printf("Error sending query message header\n");
+                close(sock);
+                continue;
+            }
+            if((send(sock, msg, sizeof(msg), 0)) < 0){
+                printf("Error sending query message command\n");
+                close(sock);
+                continue;
+            }
+
+            char rb[10] = {0};
+            recv(sock, rb, 10, 0);
+
+            if(strcmp(rb, "OK") != 0){
+                printf("Error receiving OK to send query message\n");
+                close(sock);
+                continue;
+            }
+
             std::vector<uint8_t> serialized_data = serializeQueryMessage(qm);
-            send(sock, serialized_data.data(), serialized_data.size(), 0);
-
-            //receive response confirming the message was received
-            //recv(sock, &response, 1, 0);
-
+            if((send(sock, serialized_data.data(), serialized_data.size(), 0)) < 0){
+                printf("Error sending query message content\n");
+                close(sock);
+                continue;
+            }
             close(sock);
         }
     }
@@ -469,27 +375,44 @@ void queryMessageSuperPeers(struct QueryMessage qm){//send a QueryMessage to all
 
 //handle a QueryMessage from a super peer
 void handleQueryMessage(int client_socket){
+    send(client_socket, "OK", 2, 0);
     QueryMessage qm;
-    std::vector<uint8_t> serialized_data;
-    
+    std::vector<uint8_t> serialized_data;   
     char buffer[BUFSIZE];
+    int total_size = 0;
     int bytes_read;
     while((bytes_read = recv(client_socket, buffer, BUFSIZE, 0)) > 0){
         serialized_data.insert(serialized_data.end(), buffer, buffer + bytes_read);
-    }
-    if(bytes_read < 0){
-        printf("Error reading query message\n");
-        close(client_socket);
-        return;
+        total_size += bytes_read;
+        if(bytes_read < 0){
+            printf("Error receiving query message content\n");
+            close(client_socket);
+            return;
+        }
     }
 
     close(client_socket);
 
+    if(total_size == 0){
+        printf("Error receiving query message content\n");
+        return;
+    }
+
     std::vector<uint8_t> serialized_vector(serialized_data.begin(),serialized_data.end());
-    qm = deserializeQueryMessage(serialized_vector);
+    try{
+        qm = deserializeQueryMessage(serialized_vector);
+    }catch(const std::exception& e){
+        printf("Error deserializing query message content\n");
+        return;
+    }
 
     printf("Received Query Message for file: %s\n", qm.file_name.c_str());
-    
+    /*
+    //print out the contents of the QueryMessage (for debugging)
+    for(const auto& [key, value] : message_id_map){
+        printf("Message ID: %s Upstream Peer: %s\n", key.c_str(), value.c_str());
+    }
+    */
     if(qm.ttl == 0 && message_id_map.find(qm.message_id) != message_id_map.end()){
         //if we have already seen this message and its ttl is 0, we need to get delete it
         printf("Message ID: %s TTL is 0, deleting it\n", qm.message_id.c_str());
@@ -504,6 +427,7 @@ void handleQueryMessage(int client_socket){
     //if we have not seen this QueryMessage, we need to first check if we have the file in a connected weak peer
     std::vector<peer_info> result = queryWeakPeers(qm.file_name);
     //if we have the file, we need to send a QueryHitMessage to the peer that sent the QueryMessage
+    message_id_map.insert(std::pair<std::string, std::string>(qm.message_id, qm.origin_peer_id));
     if(result.size() > 0){
         int random_peer = rand() % result.size();
         peer_info selectedPeer = result[random_peer];
@@ -512,15 +436,13 @@ void handleQueryMessage(int client_socket){
         qhm.file_name = qm.file_name;
         qhm.peer_id = selectedPeer.peer_id;
         qhm.ip_address = selectedPeer.ip;
-        qhm.port = selectedPeer.port;
-        message_id_map.insert(std::pair<std::string, std::string>(qm.message_id, qm.origin_peer_id));
+        qhm.port = selectedPeer.port;        
         printf("File in QueryMessage found in connected weak peer. Sending QueryHitMessage to %s:%d\n", qm.origin_ip_address.c_str(), qm.origin_port);
         sendQueryHitMessage(qhm, qm.origin_ip_address, qm.origin_port);
         queryMessageSuperPeers(qm);
     }else{
         //if we don't have the file, we need to forward the QueryMessage to all super peers
-        //we need to decrement the ttl by 1 and add the message id to the map
-        message_id_map.insert(std::pair<std::string, std::string>(qm.message_id, qm.origin_peer_id));
+        //we need to decrement the ttl by 1 and add the message id to the map        
         printf("File not located in any connected weak peers, forwarding QueryMessage to super peers\n");
         queryMessageSuperPeers(qm);
     }
@@ -538,13 +460,22 @@ void handleQueryHitMessage(int client_socket){
     QueryHitMessage qhm;
     char buffer[BUFSIZE];
     int bytes_read;
+    send(client_socket, "OK", 2, 0);
     while((bytes_read = recv(client_socket, buffer, BUFSIZE, 0)) > 0){
         serialized_data.insert(serialized_data.end(), buffer, buffer + bytes_read);
     }
     close(client_socket);
 
     std::vector<uint8_t> serialized_vector(serialized_data.begin(),serialized_data.end());
-    qhm = deserializeQueryHitMessage(serialized_vector);
+
+    try{
+        qhm = deserializeQueryHitMessage(serialized_vector);
+    }catch(const std::exception& e){
+        printf("Error deserializing query hit message content\n");
+    return;
+    }
+
+    
     printf("Received QueryHit for file: %s at: %s:%d\n",qhm.file_name.c_str(), qhm.ip_address.c_str(), qhm.port);
     //check if we have seen this message id before, if so we can use the map to forward the query hit message to the correct super peer or weak peer
     if(message_id_map.find(qhm.message_id) == message_id_map.end()){
@@ -576,70 +507,27 @@ void handleQueryHitMessage(int client_socket){
     printf("QueryHit message id: %s not found in map\n", qhm.message_id.c_str());
 }
 
-int findFile(int client_socket){//function to find file
-
-	//MessageHeader h;
-    QueryMessage qm;
-    std::vector<uint8_t> serialized_data;
-    
-    char buffer[BUFSIZE];
-    int bytes_read;
-    while((bytes_read = recv(client_socket, buffer, BUFSIZE, 0)) > 0){
-        serialized_data.insert(serialized_data.end(), buffer, buffer + bytes_read);
-    }
-    
-    std::vector<uint8_t> serialized_vector(serialized_data.begin(),serialized_data.end());
-    qm = deserializeQueryMessage(serialized_vector);
-    close(client_socket);
-    //insert the message id and upstream peer id into the map
-    message_id_map.insert(std::pair<std::string, std::string>(qm.message_id, qm.origin_peer_id));
-
-	
-    //check if the file exists in a peer connected to the super peer
-	std::vector<peer_info> result = queryWeakPeers(qm.file_name);
-    //if the file exists in a weak peer connected to the super peer of the original requester, send a 
-    //query hit message to the weak peer that requested it, otherwise we forward the query message to all super peers connected to this super peer
-    if(result.size() > 0){
-        int random_peer = rand() % result.size();
-        peer_info selectedPeer = result[random_peer];
-        QueryHitMessage qhm;
-        qhm.message_id = qm.message_id;
-        qhm.file_name = qm.file_name;
-        qhm.peer_id = selectedPeer.peer_id;
-        qhm.ip_address = selectedPeer.ip;
-        qhm.port = selectedPeer.port;
-        sendQueryHitMessage(qhm, qm.origin_ip_address, qm.origin_port);
-    }
-    else{
-        queryMessageSuperPeers(qm);
-    }
-
-	return 0;
-}
-
 void handle_connection(int client_socket){//function to handle connections
 	char buffer[BUFSIZE] = {0};
 	MessageHeader h;
     //receive message header
 	recv(client_socket, &h, sizeof(h), 0);
     //receive message body
-	recv(client_socket, buffer, h.length, 0);
+	recv(client_socket, buffer, BUFSIZE, 0);
 
 	if(strncmp(buffer,"register",8)==0){//register peer
-		printf("Registering peer\n");
+        send(client_socket, "OK", 2, 0);
+		//printf("Registering peer\n");
 		register_peer(client_socket);
 	}
 	else if(strncmp(buffer,"unregister",10)==0){//unregister peer
-		printf("Unregistering peer\n");
+        send(client_socket,"OK",2,0);
+		//printf("Unregistering peer\n");
 		unregister_peer(client_socket);
 	}
 	else if(strncmp(buffer,"list",4)==0){//list peers
 		printf("Listing peers and their files\n");
 		//TODO
-	}
-	else if(strncmp(buffer,"find",4)==0){//get file
-		printf("Received file query from weak peer\n");
-		findFile(client_socket);
 	}
     else if(strncmp(buffer,"msgquery",5)==0){//query from super peer"{
         //printf("Querying super-peers for file\n");
@@ -658,7 +546,7 @@ void handle_connection(int client_socket){//function to handle connections
 	}
 	else{//invalid command
         send(client_socket, "Invalid command", 15, 0);
-		//printf("Invalid command: %s\n",buffer);
+		printf("Invalid command: %s\n",buffer);
 	}
 
     accepted_connections--;
@@ -676,7 +564,7 @@ void thread_pool_function(){
     while(true){
         int *client_socket;
         std::unique_lock<std::mutex> lock(mtx);
-        if((client_socket = dequeue()) == NULL){
+        if((client_socket = socket_queue.dequeue()) == NULL){
             cv.wait(lock);
         }
         lock.unlock();
@@ -746,7 +634,7 @@ int main(int argc, char *argv[]){//main function
         *client = client_socket;
 
         std::unique_lock<std::mutex> lock(mtx);
-        enqueue(client);
+        socket_queue.enqueue(client);
         lock.unlock();
         cv.notify_one();
     }
