@@ -7,7 +7,7 @@
 #define BUFSIZE 1024
 #define SERVER_BACKLOG 100
 #define CONFIG_FILE_PATH "./test/superpeerconfigtest.cfg"
-#define THREAD_POOL_SIZE 1
+#define THREAD_POOL_SIZE 10
 #define MAX_CONNECTIONS 25
 
 std::string super_peer_id;
@@ -18,6 +18,8 @@ int accepted_connections = 0;
 typedef struct sockaddr_in SA_IN;
 typedef struct sockaddr SA;
 std::thread conn_thread_pool[THREAD_POOL_SIZE];
+std::thread qm_thread_pool[3];
+std::thread qhm_thread_pool[3];
 
 std::vector<peer_info> peers;//vector to store registered peers
 std::vector<super_peer_info> super_peers;//vector to store registered super peers
@@ -31,7 +33,6 @@ std::condition_variable qhcv;
 SocketQueue socket_queue;
 QueryMessageQueue qm_queue;
 QueryHitMessageQueue qhm_queue;
-
 
 /*** Helper functions for super peer ***/
 
@@ -303,7 +304,7 @@ std::vector<peer_info> queryWeakPeers(std::string file_name){
 }
 
 //send a QueryHitMessage to the specified IP and port
-void sendQueryHitMessage(struct QueryHitMessage qhm, std::string ip, int port){
+int sendQueryHitMessage(struct QueryHitMessage qhm, std::string ip, int port){
     //connect to the peer given in the QueryMessage struct qm
     int sock;
     if((sock = sconnect((char*)ip.c_str(), port))<0){
@@ -321,7 +322,7 @@ void sendQueryHitMessage(struct QueryHitMessage qhm, std::string ip, int port){
     if((recv(sock,rb,10,0) < 0)){
         printf("Error receiving OK QueryHitMessage response\n");
         close(sock);
-        return;
+        return -1;
     }
     //serialize the QueryHitMessage struct and send it
     send(sock, serialized_data.data(), serialized_data.size(), 0);
@@ -330,7 +331,7 @@ void sendQueryHitMessage(struct QueryHitMessage qhm, std::string ip, int port){
     
     //remove the message id from the map
     message_id_map.erase(qhm.message_id);
-    return;
+    return 0;
 }
 
 int sendQueryMessage(struct QueryMessage qm, std::string ip, int port){
@@ -360,10 +361,10 @@ int sendQueryMessage(struct QueryMessage qm, std::string ip, int port){
     //close the socket
     recv(sock,rb,10,0);
     if(strcmp(rb,"SUCCESS")==0){
-        printf("QueryMessage sent successfully\n");
+        //printf("QueryMessage sent successfully\n");
     }
     else{
-        printf("QueryMessage failed to send\n");
+        //printf("QueryMessage failed to send\n");
         close(sock);
         return -1;
     }
@@ -482,15 +483,15 @@ void handle_connection(int client_socket){//function to handle connections
 		//printf("Unregistering peer\n");
 		unregister_peer(client_socket);
 	}
-    else if(strncmp(buffer,"Query",5)==0){//query from super peer"
-        send(client_socket, "OK", 2, 0);
-        //printf("Querying super-peers for file\n");
-        handleQueryMessage(client_socket);
-    }
     else if(strncmp(buffer,"QueryHit",8)==0){//query hit from super peer"{
         send(client_socket, "OK", 2, 0);
         printf("Received query hit from super-peer\n");
         handleQueryHitMessage(client_socket);
+    }
+    else if(strncmp(buffer,"Query",5)==0){//query from super peer"
+        send(client_socket, "OK", 2, 0);
+        //printf("Querying super-peers for file\n");
+        handleQueryMessage(client_socket);
     }
 	else if(strncmp(buffer,"list",4)==0){//list peers
 		printf("Listing peers and their files\n");
@@ -538,7 +539,11 @@ void queryHitHandler(){
                 std::string upstream_peer_ip = upstream_peer_loc.substr(0, upstream_peer_loc.find(":"));
                 int upstream_peer_port = atoi(upstream_peer_loc.substr(upstream_peer_loc.find(":")+1, upstream_peer_loc.length()).c_str());
                 printf("Forwarding QueryHitMessage to upstream peer: %s:%d\n", upstream_peer_ip.c_str(), upstream_peer_port);
-                sendQueryHitMessage(qhm, upstream_peer_ip, upstream_peer_port);
+                int n = 0;
+                //try to send the QueryHitMessage 3 times before giving up
+                while(n<3 && sendQueryHitMessage(qhm, upstream_peer_ip, upstream_peer_port)<0){
+                    n++;
+                }
             }
         }
     }
@@ -565,15 +570,21 @@ void queryHandler(){
                 qhm_queue.enqueue(qhm);
                 qhcv.notify_one();
             }
+            //modify the QueryMessage to reflect the new sender, retain the original sender's ip and port
+            std::string original_sender_ip = qm.origin_ip_address;
+            int original_sender_port = qm.origin_port;
+            qm.origin_ip_address = ip;
+            qm.origin_port = port;
+            qm.ttl = qm.ttl - 1;
             for(long unsigned int i = 0; i < super_peers.size(); i++){
                 //forward the QueryMessage to all super peers except the one that sent it
-                //modify the QueryMessage to reflect the new sender
-                std::string original_sender_ip = qm.origin_ip_address;
-                qm.origin_ip_address = ip;
-                qm.origin_port = port;
-                if((strcmp(super_peers[i].ip, original_sender_ip.c_str())!=0) || super_peers[i].port != qm.origin_port){
-                    printf("Forwarding QueryMessage to super peer %s:%d...", super_peers[i].ip, super_peers[i].port);
-                    sendQueryMessage(qm, super_peers[i].ip, super_peers[i].port);
+                if((strcmp(super_peers[i].ip, original_sender_ip.c_str())!=0) || super_peers[i].port != original_sender_port){
+                    //printf("Forwarding QueryMessage to super peer %s:%d...", super_peers[i].ip, super_peers[i].port);
+                    int n = 0;
+                    //try to send the QueryMessage 3 times before giving up
+                    while(n<3 && sendQueryMessage(qm, super_peers[i].ip, super_peers[i].port) < 0){
+                        n++;
+                    }
                 }
             }
         }
@@ -641,11 +652,16 @@ int main(int argc, char *argv[]){//main function
         conn_thread_pool[i] = std::thread(&thread_pool_function);
     }
 
+    for(int i = 0; i < 3; i++){
+        qm_thread_pool[i] = std::thread(&queryHandler);
+        qhm_thread_pool[i] = std::thread(&queryHitHandler);
+    }
+    /*
     std::thread query_thread(&queryHandler);
     query_thread.detach();
     std::thread queryhit_thread(&queryHitHandler);
     queryhit_thread.detach();
-
+    */
 	while(true){//accept connections
 		addr_size = sizeof(sockaddr_in);
 		check((client_socket = accept(server_socket, (sockaddr*)&client_addr,(socklen_t*)&addr_size)),"failed to accept client connection");//accept connection

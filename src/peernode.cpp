@@ -696,7 +696,6 @@ int main(int argc, char *argv[]){
     for(int i = 0; i < argc; i++){
         if(strcmp(argv[i], "-i") == 0){
             interactive = true;
-            argc--;
         }
     }
     //ensure that the folder for the hosted files exists
@@ -717,20 +716,18 @@ int main(int argc, char *argv[]){
         exit(1);
     }
     //start the interactive mode thread if the -i flag was passed
-    if(interactive){
-        std::thread it(interactiveMode);
-        it.detach();
-    }
     //start the thread to listen for connections
     std::thread t1(listenForConnections);
+    t1.detach();
     //if there was a list of files to download passed as an argument, download them
-    if(argc == 3){
+    if(argc >= 3){
         sleep(2);
-        t1.detach();
         loadDownloadList(argv[2]);
         sleep(10);
-    }else{
-        t1.join();
+    }
+    if(interactive){
+        std::thread it(interactiveMode);
+        it.join();
     }
 
     return 0;

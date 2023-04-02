@@ -1,7 +1,7 @@
 #!/bin/bash
 
-if [ $# -ne 1 ]; then
-  echo "Usage: init.sh <type(a2a|tree)>"
+if [ $# -ne 2 ]; then
+  echo "Usage: init.sh <type(a2a|tree)> <num super peers>"
   exit 1
 fi
 if [ $1 != "a2a" ] && [ $1 != "tree" ]; then
@@ -9,7 +9,26 @@ if [ $1 != "a2a" ] && [ $1 != "tree" ]; then
   exit 1
 fi
 
+if [ $2 -lt 1 ] || [ $2 -gt 10 ]; then
+  echo "Number of super peers must be between 1 and 10"
+  exit 1
+fi
 
+p=$((${2}*3))
+
+pkill -9 peernode.o
+pkill -9 superpeer.o
+
+make clean
+rm logs/*
+rm results/*
+rm tests/*
+rm peer_configs/super_peers/*
+rm peer_configs/weak_peers/*
+for i in $(seq 1 $p)
+do
+    rm peer_files/p${i}_files/*
+done
 
 make;
 
@@ -27,7 +46,7 @@ fi
 
 echo Initializing peer configs...
 
-for i in {1..24}
+for i in $(seq 1 $p)
 do
   j=$((8082 + ${i}))
   echo "PEER_ID peer${i}" > "peer_configs/weak_peers/peer${i}.cfg"
@@ -63,18 +82,20 @@ done
 
 echo "Initializing super peer configs..."
 
-for i in {1..10}; do
+for i in $(seq 1 $2); do
   j=$((8059 + ${i}))
   echo "PEER_ID superpeer${i}" > "peer_configs/super_peers/superpeer${i}.cfg"
   echo "IP 127.0.0.1" >> "peer_configs/super_peers/superpeer${i}.cfg"
   echo "PORT ${j}" >> "peer_configs/super_peers/superpeer${i}.cfg"
 done
 
+sp=$((${2}-1))
+
 if [ "$1" = "a2a" ]; then
   echo "Configuring super peers for all to all network..."
-  for i in {0..9}; do
+  for i in $(seq 0 $sp); do
   echo "NEIGHBOR 127.0.0.1:8059" >> "peer_configs/super_peers/superpeer$((i+1)).cfg"
-    for j in {0..9}; do
+    for j in $(seq 0 $sp); do
       if (( i != j )); then
       echo "NEIGHBOR 127.0.0.1:806$j" >> "peer_configs/super_peers/superpeer$((i+1)).cfg"
       fi
@@ -115,7 +136,7 @@ fi
 
 echo Initializing peer files...
 
-for i in {1..30}
+for i in $(seq 1 $p)
 do
   if [ ! -d "peer_files/p${i}_files" ]
   then
@@ -165,7 +186,7 @@ if [ ! -d "tests" ]; then
   mkdir "tests"
 fi
 
-for i in {1..30}
+for i in $(seq 1 $p)
 do
   echo "t128b${i}.txt">> "tests/test${i}.txt"
   echo "t512b${i}.txt">> "tests/test${i}.txt"
