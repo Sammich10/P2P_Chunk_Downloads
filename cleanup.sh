@@ -9,7 +9,7 @@ rm results/*
 rm tests/*
 rm peer_configs/super_peers/*
 rm peer_configs/weak_peers/*
-for i in {1..16}
+for i in {1..30}
 do
     rm peer_files/p${i}_files/*
 done

@@ -341,10 +341,10 @@ void queryFile(char* file_name){//query the super peer that acts as an indexing 
     std::vector <std::string> valid_peers;
     
     MessageHeader h;
-    h.length = strlen("msgquery");
+    h.length = strlen("Query");
     
     check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, "msgquery", strlen("msgquery"), 0), "error sending find request to super peer",false);
+    check(send(sock, "Query", strlen("Query"), 0), "error sending find request to super peer",false);
     char rb[10] = {0};
     check(recv(sock, rb, sizeof(rb), 0), "error receiving OK to send Query Message",false);
     if(strncmp(rb, "OK", strlen("OK")) != 0){
@@ -363,9 +363,17 @@ void queryFile(char* file_name){//query the super peer that acts as an indexing 
     qm.origin_port = port;
 
     std::vector<uint8_t> msg = serializeQueryMessage(qm);
+    uint32_t msg_size = msg.size();
+    check(send(sock, &msg_size, sizeof(msg_size), 0), "error sending query message to super peer",false);
     check(send(sock, msg.data(), msg.size(), 0), "error sending query message to super peer",false);
-
+    check(recv(sock, rb, 7, 0), "error receiving query message response",false);
+    if(strcmp(rb,"SUCCESS") != 0){
+        printf("Query Message not sent successfully\n");
+        close(sock);
+        return;
+    }
     close(sock);
+    return;
 }
 
 
@@ -514,78 +522,83 @@ int unregister_peer(){
     return 0;
 }
 
+void handleQueryHit(int client_socket){
+    //printf("Received QueryHit\n");
+    send(client_socket, "OK", strlen("OK"), 0);
+    std::vector<uint8_t> serialized_data;
+    QueryHitMessage qhm;
+    char buffer[BUFSIZE];
+    int bytes_read;
+    while((bytes_read = recv(client_socket, buffer, BUFSIZE, 0)) > 0){
+        serialized_data.insert(serialized_data.end(), buffer, buffer + bytes_read);
+    }
+    std::vector<uint8_t> serialized_vector(serialized_data.begin(),serialized_data.end());
+    qhm = deserializeQueryHitMessage(serialized_vector);
+    printf("Received QueryHit for file: %s at: %s:%d\n",qhm.file_name.c_str(), qhm.ip_address.c_str(), qhm.port);
+    close(client_socket);
+    //send download request to the peer that has the file
+    strcpy((char*)qhm.file_name.c_str(), qhm.file_name.c_str());
+    downloadFromPeer(qhm.ip_address, qhm.port, (char*)qhm.file_name.c_str());
+}
+
+void handleDownloadRequest(int client_socket){
+    char buffer[BUFSIZE] = {0};
+    MessageHeader h;
+    recv(client_socket, &h, sizeof(h), 0);
+    recv(client_socket, buffer, h.length, 0);
+    printf("Received download request for file name: %s\n", buffer);
+    std::string file_name = buffer;
+    std::string path = get_current_dir_name();
+    path += "/" + host_folder + "/" + file_name;
+    FILE *fp = fopen(path.c_str(), "rb");
+    if(fp == NULL){
+        printf("File not found\n");
+        h.length = strlen("File not found");
+        send(client_socket, &h, sizeof(h), 0);
+        send(client_socket, "File not found", h.length, 0);
+        close(client_socket);
+        //if the file is not found, update the server and tell it to remove the file from the list of hosted files
+        update_hosted_files(sconnect(super_peer_ip, super_peer_port), 1, (char*)file_name.c_str());
+        return;
+    }else{
+        //printf("File found\n");
+        h.length = strlen("File found");
+        send(client_socket, &h, sizeof(h), 0);
+        send(client_socket, "File found", h.length, 0);
+    }
+
+    read(client_socket, buffer, 1);
+
+    std::clock_t start;
+    double dur;
+    start = std::clock();
+    size_t bytes_sent = 0;
+    size_t bytes_read;
+
+    while((bytes_read = fread(buffer, 1, BUFSIZE, fp)) > 0){    
+        bytes_sent += bytes_read;
+        send(client_socket, buffer, bytes_read, 0);
+    }
+    dur = (std::clock() - start) / (double) CLOCKS_PER_SEC;
+    printf("Sent %zu bytes in %.16f seconds\n", bytes_sent, dur);
+    
+    close(client_socket);
+}
+
 /*** Functions for peer to act as a server ***/
 
 void handleConnection(int client_socket){
     char buffer[BUFSIZE] = {0};
     MessageHeader h;
+    //receive the command
     recv(client_socket, &h, sizeof(h), 0);
     recv(client_socket, buffer, h.length, 0);
     //printf("Received message: %s\n", buffer);
     if(strcmp(buffer, "QueryHit")==0){
-        //printf("Received QueryHit\n");
-        std::vector<uint8_t> serialized_data;
-        QueryHitMessage qhm;
-        char buffer[BUFSIZE];
-        int bytes_read;
-        while((bytes_read = recv(client_socket, buffer, BUFSIZE, 0)) > 0){
-            serialized_data.insert(serialized_data.end(), buffer, buffer + bytes_read);
-        }
-        std::vector<uint8_t> serialized_vector(serialized_data.begin(),serialized_data.end());
-        qhm = deserializeQueryHitMessage(serialized_vector);
-        printf("Received QueryHit for file: %s at: %s:%d\n",qhm.file_name.c_str(), qhm.ip_address.c_str(), qhm.port);
-        close(client_socket);
-        //send download request to the peer that has the file
-        strcpy((char*)qhm.file_name.c_str(), qhm.file_name.c_str());
-        downloadFromPeer(qhm.ip_address, qhm.port, (char*)qhm.file_name.c_str());
+        handleQueryHit(client_socket);
     }
-
     else if(strcmp(buffer, "download") == 0){
-        recv(client_socket, &h, sizeof(h), 0);
-        recv(client_socket, buffer, h.length, 0);
-        printf("Received download request for file name: %s\n", buffer);
-        std::string file_name = buffer;
-
-        std::string path = get_current_dir_name();
-        path += "/" + host_folder + "/" + file_name;
-
-        
-        FILE *fp = fopen(path.c_str(), "rb");
-
-        if(fp == NULL){
-            printf("File not found\n");
-            h.length = strlen("File not found");
-            send(client_socket, &h, sizeof(h), 0);
-            send(client_socket, "File not found", h.length, 0);
-            close(client_socket);
-            //if the file is not found, update the server and tell it to remove the file from the list of hosted files
-            update_hosted_files(sconnect(super_peer_ip, super_peer_port), 1, (char*)file_name.c_str());
-            return;
-        }else{
-            //printf("File found\n");
-            h.length = strlen("File found");
-            send(client_socket, &h, sizeof(h), 0);
-            send(client_socket, "File found", h.length, 0);
-        }
-
-        read(client_socket, buffer, 1);
-
-        std::clock_t start;
-        double dur;
-        start = std::clock();
-        size_t bytes_sent = 0;
-        size_t bytes_read;
-
-        while((bytes_read = fread(buffer, 1, BUFSIZE, fp)) > 0){    
-            bytes_sent += bytes_read;
-            send(client_socket, buffer, bytes_read, 0);
-        }
-        dur = (std::clock() - start) / (double) CLOCKS_PER_SEC;
-        printf("Sent %zu bytes in %.16f seconds\n", bytes_sent, dur);
-        
-        close(client_socket);
-        
-
+        handleDownloadRequest(client_socket);
     }else{
         close(client_socket);
     }
@@ -599,7 +612,7 @@ void listenForConnections(){
     while(1){
         int client_sock = accept(sock, (sockaddr*)&client_addr, (socklen_t*)&addr_size);
         check(client_sock, "error accepting connection",true);
-        printf("Accepted connection from %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        printf("\nAccepted connection from %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
         std::thread t1(&handleConnection, client_sock);
         t1.detach();
     }

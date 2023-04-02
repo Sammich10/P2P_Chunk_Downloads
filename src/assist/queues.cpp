@@ -19,9 +19,11 @@ class SocketQueue {
 
     node_t* head = NULL;
     node_t* tail = NULL;
-
+private:
+    mutable std::mutex m_mutex;
 public:
     void enqueue(int *client_socket) {
+        std::lock_guard<std::mutex> lock(m_mutex);
         node_t *newnode = (node_t*)malloc(sizeof(node_t));
         newnode->client_socket = client_socket;
         newnode->next = NULL;
@@ -35,6 +37,7 @@ public:
     }
 
     int* dequeue() {
+        std::lock_guard<std::mutex> lock(m_mutex);
         if (head == NULL) {
             return NULL;
         }
