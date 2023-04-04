@@ -1,5 +1,0 @@
-t128b1.txt
-t512b1.txt
-t2kb1.txt
-t8kb1.txt
-t32kb1.txt

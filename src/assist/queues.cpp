@@ -128,4 +128,30 @@ public:
     }
 };
 
+class FileQueue {
+private:
+    std::queue<std::pair<std::string, std::string>> file_queue;
+    mutable std::mutex f_mutex;
+    std::condition_variable fq_cv;
+
+public:
+    void enqueue(const std::string& filename, const std::string& host) {
+        std::lock_guard<std::mutex> lock(f_mutex);
+        file_queue.push(std::make_pair(filename, host));
+        fq_cv.notify_one();
+    }
+
+    std::pair<std::string, std::string> dequeue() {
+        std::unique_lock<std::mutex> lock(f_mutex);
+        fq_cv.wait(lock, [this] { return !file_queue.empty(); });
+        auto file_pair = file_queue.front();
+        file_queue.pop();
+        return file_pair;
+    }
+    bool empty() const {
+        std::lock_guard<std::mutex> lock(f_mutex);
+        return file_queue.empty();
+    }
+
+};
 #endif

@@ -1,36 +1,47 @@
 #include "dependencies.h"
 #include "assist/message_utils.hpp"
+#include "assist/queues.hpp"
 
 #define SERVER_PORT 8060
 #define CONFIG_FILE_PATH "./test/peerconfigtest.cfg"
 #define DEFAULT_IP "127.0.0.1";
 #define SERVER_BACKLOG 200
 #define BUFSIZE 1024
+#define DL_THREADS 5
 
-using namespace std;
+//using namespace std;
 
 //peer node global variables
-string peer_id = "peer0";
-string ip = "127.0.0.1";
+std::string peer_id = "peer0";
+std::string ip = "127.0.0.1";
 int port = 8081;
-string host_folder = "test/peer_files";
+std::string host_folder = "test/peer_files";
 char super_peer_ip[15] = "127.0.0.1";
 int super_peer_port = 8060;
 int dl_attempts = 3;
-
 size_t total_dl_size = 0;
 double total_dl_time = 0;
-
 namespace fs = std::filesystem;
-
 typedef struct sockaddr SA;
 
-peer_info my_info;
+peer_info my_info;//struct to store peer information
 
-std::vector<file_info> fileList;
+std::thread downloader_thread_pool[DL_THREADS];//downloader thread pool
 
-std::shared_mutex directoryMutex;
-std::mutex mtx;
+std::vector<file_info> fileList;//vector to store files in the peer node
+std::shared_mutex directoryMutex;//mutex to lock directory
+std::mutex mtx;//general purpose mutex
+std::mutex sconnect_mutex;//mutex to lock sconnect function
+std::mutex file_host_map_mutex;//mutex to lock file_host_map
+std::mutex dl_mutex;//mutex to lock dl_queue
+std::condition_variable dl_cv; //condition variable for downloader thread
+
+//map to store query messages and their response times
+std::map<std::string, clock_t> query_map;
+//map to store files and their corresponding hosts locations to download from
+std::map<std::string, std::string> file_host_map;
+
+FileQueue dl_queue;//queue to store files to be downloaded
 
 void check(int n, const char *msg);
 int sconnect(char IP[], int port);
@@ -40,19 +51,18 @@ int sconnect(char IP[], int port);
 bool loadConfig(const char filepath[]){//function to load configuration parameters from config file
 	char real_path[PATH_MAX+1];
 	realpath(filepath,real_path);
-	ifstream in(real_path);
+	std::ifstream in(real_path);
 	if(!in.is_open()){
-		cout << "config file could not be opened\n";
+		std::cout << "config file could not be opened\n";
         in.close();
 		return false;
 	}
-	string param;
-	string value;
+	std::string param;
+	std::string value;
 
 	while(!in.eof()){
 		in >> param;
 		in >> value;
-
         if(param == "PEER_ID"){
             peer_id = value;
             my_info.peer_id = peer_id;
@@ -77,7 +87,6 @@ bool loadConfig(const char filepath[]){//function to load configuration paramete
         else if(param == "DOWNLOAD_ATTEMPTS"){
             dl_attempts = stoi(value);
         }
-		
 	}
 	in.close();
 	return true;
@@ -138,7 +147,9 @@ void updateFileList(){//update the list of files in the upload directory
         f.file_size = fs::file_size(entry.path());
         fileList.push_back(f);
     }
+    mtx.lock();
     my_info.files = fileList;
+    mtx.unlock();
 }
 
 std::vector<file_info> getFileList(){//return the list of files in the upload directory
@@ -180,6 +191,18 @@ std::string generateQueryName() {//generate a unique query name for each query
     return name_ss.str();
 }
 
+std::vector<std::string> splitString(const std::string& s, char delimiter)                                                                                                                          
+{                                                                                                                                                                                             
+   std::vector<std::string> re;                                                                                                                                                           
+   std::string st;                                                                                                                                                                         
+   std::istringstream ss(s);                                                                                                                                                                  
+   while (std::getline(ss, st, delimiter))                                                                                                                                                 
+   {                                                                                                                                                                                          
+      re.push_back(st);                                                                                                                                                                
+   }                                                                                                                                                                                          
+   return re;                                                                                                                                                                             
+}
+
 /*** Socket functions for network communications ***/
 
 int slisten(int port){//function to create a socket and listen for incoming connections on the specified port
@@ -204,30 +227,29 @@ int slisten(int port){//function to create a socket and listen for incoming conn
 }
 
 int sconnect(char IP[], int port){//connect to super-peer or another peer node and return the socket
+    std::lock_guard<std::mutex> lock(sconnect_mutex);
+    
     int sock = 0, client_fd;
     struct sockaddr_in server_addr;
-
     if((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         printf("error creating socket connection with %s:%d\n",IP,port);
         return -1;
     }
-
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port);
-
     if(inet_pton(AF_INET, IP, &server_addr.sin_addr) <=0){
         printf("\nInvalid address or address not supported\n");
         return -1;
     }
-
     if((client_fd = connect(sock, (SA*)&server_addr, sizeof(server_addr))) < 0){
         printf("Connection to server on port %d failed!\n",port);
         return -1;
     }
-
     //printf("Connection to server on port %d successful\n",port);
     return sock;
 }
+
+/**********************************************************************************************/
 
 /*** Core functions for the peer's operation ***/
 
@@ -297,17 +319,15 @@ int downloadFile(int socket, char filename[]){//download a file specified by it'
     total_dl_size +=bytes_recvd;
     total_dl_time +=dur;
     fclose(fp);
-
-    
-
-
     if(valread < 0){
         printf("error reading response from server\n\n"); 
         close(sock);
         return -1;
     }
-
-    
+    file_info newFile = {filename, (int)bytes_recvd};
+    mtx.lock();
+    my_info.files.push_back(newFile);
+    mtx.unlock();
     close(sock);
     return 0;
 }
@@ -330,16 +350,24 @@ void downloadFromPeer(std::string peer_ip, int peer_port, char* file_name){
 }
 
 //query the super peer that acts as an indexing server for the specified file name
-void queryFile(char* file_name){//query the super peer that acts as an indexing server for the specified file name
+int queryFile(char* file_name){
     int sock = sconnect(super_peer_ip, super_peer_port);
-
     if(sock < 0){
         printf("error connecting to super peer\n");
-        return;
+        return -1;
     }
+    //create QueryMessage
+    QueryMessage qm;
+    qm.message_id = generateQueryName();
+    qm.ttl = 5;
+    qm.file_name = file_name;
+    qm.origin_peer_id = peer_id;
+    qm.origin_ip_address = ip;
+    qm.origin_port = port;
+
+    query_map.insert(std::pair<std::string, clock_t>(qm.message_id, clock()));
 
     std::vector <std::string> valid_peers;
-    
     MessageHeader h;
     h.length = strlen("Query");
     
@@ -350,17 +378,8 @@ void queryFile(char* file_name){//query the super peer that acts as an indexing 
     if(strncmp(rb, "OK", strlen("OK")) != 0){
         printf("error receiving OK to send Query Message\n");
         close(sock);
-        return;
+        return -1;
     }
-
-    //send query message to super peer
-    QueryMessage qm;
-    qm.message_id = generateQueryName();
-    qm.ttl = 5;
-    qm.file_name = file_name;
-    qm.origin_peer_id = peer_id;
-    qm.origin_ip_address = ip;
-    qm.origin_port = port;
 
     std::vector<uint8_t> msg = serializeQueryMessage(qm);
     uint32_t msg_size = msg.size();
@@ -370,69 +389,103 @@ void queryFile(char* file_name){//query the super peer that acts as an indexing 
     if(strcmp(rb,"SUCCESS") != 0){
         printf("Query Message not sent successfully\n");
         close(sock);
-        return;
+        return -1;
     }
     close(sock);
-    return;
-}
-
-
-int update_hosted_files_all(int sock){
-    std::vector<file_info> hostedFiles = getFileList();
-    MessageHeader h;
-    h.length = strlen("update");
-    check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, "update", strlen("update"), 0), "error sending update command to server",false); //send update command to server
-
-    h.length = sizeof(int);
-    int size = hostedFiles.size();
-    check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, &port, sizeof(port), 0), "error sending port to server",false);
-    check(send(sock, &size, sizeof(size), 0), "error sending number of files to server",false);
-
-    for(int i = 0;(long unsigned int)i < hostedFiles.size(); i++){
-        h.length = hostedFiles[i].file_name.length();
-        check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-        check(send(sock, hostedFiles[i].file_name.c_str(), hostedFiles[i].file_name.length(), 0), "error sending file name to server",false);
-        check(send(sock, &hostedFiles[i].file_size, sizeof(hostedFiles[i].file_size), 0), "error sending file size to server",false);
-    }
     return 0;
 }
 
-//update the server with the files that are currently hosted, either delete or add
-int update_hosted_files(int sock, int operation, char filename[]){
 
-    std::vector<file_info> hostedFiles = getFileList();
+int update_hosted_files_all(){
+    //connect to the server
+    int sock;
+    if((sock= sconnect(super_peer_ip, super_peer_port))<0){
+        printf("error connecting to super peer");
+        return -1;
+    }
+    updateFileList();
+    char buffer[BUFSIZE] = {0};
+    mtx.lock();
+    serialize_peer_info(my_info, buffer);
+    mtx.unlock();
     MessageHeader h;
-    h.length = strlen("single_update");
-    check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, "single_update", strlen("single_update"), 0), "error sending update command to server",false); //send update command to server
-
-    h.length = sizeof(int);
-    check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-    check(send(sock, &port, sizeof(port), 0), "error sending port to server",false);
-    check(send(sock, &operation, sizeof(operation), 0), "error sending operation to server",false);
-    
-    if(operation == 0){//delete file
-        h.length = strlen(filename);
-        check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-        check(send(sock, filename, strlen(filename), 0), "error sending filename to server",false);
+    h.length = strlen("update");    
+    //send the command
+    if(((send(sock, &h, sizeof(h), 0)) < 0) || ((send(sock, "update", strlen("update"), 0)) < 0)){
+        printf("error sending update command to super peer\n");
         close(sock);
+        return -1;
     }
-    else if(operation == 1){//add file
-        h.length = strlen(filename);
-        std::string path = get_current_dir_name();
-        path += "/" + host_folder + "/" + filename;
-        std::shared_lock<std::shared_mutex> lock(directoryMutex);
-        int filesize = fs::file_size(path);
-        check(send(sock, &h, sizeof(h), 0), "error sending message header",false); //send message header
-        check(send(sock, filename, strlen(filename), 0), "error sending filename to server",false);
-        check(send(sock, &filesize, sizeof(filesize), 0), "error sending filesize to server",false);
+    //process the response
+    char rb[BUFSIZE] = {0};
+    if((recv(sock, rb, BUFSIZE, 0)) < 0){
+        printf("error receiving OK to send peer info for update\n");
         close(sock);
+        return -1;
     }
-    
+    if(strcmp(rb, "OK") != 0){
+        printf("Failed to update with super peer\n");
+        close(sock);
+        return -1;
+    }
+    //send the peer info
+    if(send(sock, buffer, BUFSIZE, 0) < 0){
+        printf("error sending peer info to super peer for update\n");
+        close(sock);
+        return -1;
+    }
+    close(sock);
     return 0;
 }
+
+/*
+//update the server with a single file that this peer is hosting
+int add_hosted_file(char filename[], int file_size){
+    int sock = sconnect(super_peer_ip, super_peer_port);
+    if(sock < 0){
+        printf("error connecting to super peer");
+        return -1;
+    }
+    //send the command
+    MessageHeader h;
+    h.length = strlen("single_add");
+    if(((send(sock, &h, sizeof(h), 0)) < 0) || ((send(sock, "single_add", strlen("single_add"), 0)) < 0)){
+        printf("error sending single_add command to super peer\n");
+        close(sock);
+        return -1;
+    }
+    //process the response
+    char rb[BUFSIZE] = {0};
+    if((recv(sock, rb, BUFSIZE, 0)) < 0){
+        printf("error receiving OK to send peer info for single_add\n");
+        close(sock);
+        return -1;
+    }
+    if(strcmp(rb, "OK") != 0){
+        printf("Failed to update with super peer\n");
+        close(sock);
+        return -1;
+    }
+    //send peer_id
+    h.length = peer_id.length();
+    if((send(sock,&h,sizeof(h),0)<0) || (send(sock, &peer_id, sizeof(peer_id), 0) < 0)){
+        printf("error sending peer_id to super peer for single_add\n");
+        close(sock);
+        return -1;
+    }
+    //send filename
+    h.length = strlen(filename);
+    if((send(sock,&h,sizeof(h),0)<0) || (send(sock, filename, strlen(filename), 0) < 0)){
+        printf("error sending filename to super peer for single_add\n");
+        close(sock);
+        return -1;
+    }
+    send(sock, (void*)file_size, sizeof(file_size), 0);
+
+    return 0;
+}
+*/
+
 
 //register the peer with the server, and transmit the files that are currently hosted
 //returns 0 on success, -1 on failure
@@ -510,7 +563,9 @@ int unregister_peer(){
     }
     //send the peer info
     char buffer[BUFSIZE] = {0};
+    mtx.lock();
     serialize_peer_info(my_info, buffer);
+    mtx.unlock();
 
     if((send(sock, buffer, BUFSIZE, 0))<0){
         printf("error sending peer info to super peer\n");
@@ -522,23 +577,59 @@ int unregister_peer(){
     return 0;
 }
 
+//handle QueryHit message
 void handleQueryHit(int client_socket){
     //printf("Received QueryHit\n");
     send(client_socket, "OK", strlen("OK"), 0);
-    std::vector<uint8_t> serialized_data;
     QueryHitMessage qhm;
-    char buffer[BUFSIZE];
-    int bytes_read;
-    while((bytes_read = recv(client_socket, buffer, BUFSIZE, 0)) > 0){
-        serialized_data.insert(serialized_data.end(), buffer, buffer + bytes_read);
+    uint32_t msg_len;
+    if(recv(client_socket, &msg_len, sizeof(msg_len), 0) < 0){
+        printf("Error receiving query message length\n");
+        close(client_socket);
+        return;
+    }
+    std::vector<uint8_t> serialized_data(msg_len);
+    size_t total_size = 0;
+    while(total_size < msg_len){
+        ssize_t bytes_read = recv(client_socket, serialized_data.data() + total_size, msg_len - total_size, 0);
+        if(bytes_read < 0){
+            printf("Error receiving query message content\n");
+            close(client_socket);
+            return;
+        }
+        total_size += bytes_read;
+    }
+    if(total_size == 0){
+        printf("Error receiving query message content\n");
+        close(client_socket);
+        return;
     }
     std::vector<uint8_t> serialized_vector(serialized_data.begin(),serialized_data.end());
-    qhm = deserializeQueryHitMessage(serialized_vector);
-    printf("Received QueryHit for file: %s at: %s:%d\n",qhm.file_name.c_str(), qhm.ip_address.c_str(), qhm.port);
+    try{
+        qhm = deserializeQueryHitMessage(serialized_vector);
+    }catch(const std::exception& e){
+        printf("Error deserializing query hit message content\n");
+        return;
+    }
+    send(client_socket, "SUCCESS", strlen("SUCCESS"), 0);
     close(client_socket);
-    //send download request to the peer that has the file
-    strcpy((char*)qhm.file_name.c_str(), qhm.file_name.c_str());
-    downloadFromPeer(qhm.ip_address, qhm.port, (char*)qhm.file_name.c_str());
+    //if this is the first time we have received a QueryHit for this file, print the response time
+    //and store the host location for the file in the file_host_map
+    double dur = (clock()-query_map[qhm.message_id])/((double)CLOCKS_PER_SEC);
+    printf("Received QueryHit for file: %s at: %s:%d, response time: %.16f\n",qhm.file_name.c_str(), qhm.ip_address.c_str(), qhm.port, dur);
+    std::lock_guard<std::mutex> lock(file_host_map_mutex);
+    if(file_host_map.find(qhm.file_name) == file_host_map.end()){
+        //store the host location for the file in the file_host_map
+        std::string host_loc = qhm.ip_address + ":" + std::to_string(qhm.port);
+        file_host_map[qhm.file_name] = host_loc;
+        //add the file to the download queue
+        dl_queue.enqueue(qhm.file_name, host_loc);
+        //notify the downloader threads we have a file to download
+        dl_cv.notify_one();
+        fflush(stdout);
+    }
+    //if this is not the first time we have received a QueryHit for this file, do nothing (ignore it)
+    return;
 }
 
 void handleDownloadRequest(int client_socket){
@@ -558,7 +649,7 @@ void handleDownloadRequest(int client_socket){
         send(client_socket, "File not found", h.length, 0);
         close(client_socket);
         //if the file is not found, update the server and tell it to remove the file from the list of hosted files
-        update_hosted_files(sconnect(super_peer_ip, super_peer_port), 1, (char*)file_name.c_str());
+        //update_hosted_files(sconnect(super_peer_ip, super_peer_port), 1, (char*)file_name.c_str());
         return;
     }else{
         //printf("File found\n");
@@ -584,6 +675,33 @@ void handleDownloadRequest(int client_socket){
     
     close(client_socket);
 }
+
+void downloader_thread_function(){
+    while(1){
+        std::unique_lock<std::mutex> lock(dl_mutex);
+        if(dl_queue.empty()){
+            dl_cv.wait(lock);
+        }
+        std::pair<std::string, std::string> file_to_dl = dl_queue.dequeue();
+        std::string file_name = file_to_dl.first;
+        std::string host_loc = file_to_dl.second;
+        bool already_downloaded = false;
+        //make sure we don't already have the file
+        for(auto it = my_info.files.begin(); it != my_info.files.end(); it++){
+            if(it->file_name == file_name){
+                already_downloaded = true;
+            }
+        }
+        if(!already_downloaded){
+            std::string ip_address = host_loc.substr(0, host_loc.find(":"));
+            int port = std::stoi(host_loc.substr(host_loc.find(":")+1));
+            downloadFromPeer(ip_address, port, (char*)file_name.c_str());
+        
+        }
+    }
+}
+
+/**************************************************************************************************/
 
 /*** Functions for peer to act as a server ***/
 
@@ -622,15 +740,18 @@ void listenForConnections(){
 /*** Functions for interactivity or automation ***/
 
 //if there was a list of files to download passed as an argument, download them
-void loadDownloadList(char* file_name){
-    std::ifstream file(file_name);
-    std::string str; 
-    while (std::getline(file, str))
-    {
-        queryFile((char*)str.c_str());
-        sleep(2);
+void loadDownloadList(std::vector<std::string> files){
+    for(auto file_name : files){
+        std::ifstream file(file_name);
+        std::string str; 
+        while (std::getline(file, str))
+        {
+            queryFile((char*)str.c_str());
+            sleep(2);
+        }
+        update_hosted_files_all();
+        sleep(5);
     }
-    
     return; 
 }
 
@@ -686,9 +807,10 @@ void exitRoutine(){
 
 int main(int argc, char *argv[]){
     bool interactive = false;
+    bool hostonly = false;
     if(argc < 2){
-        printf("Usage: <config file path> <files_to_download.txt>\nLoading default config parameters: %s\n", CONFIG_FILE_PATH);
-        loadConfig(CONFIG_FILE_PATH);
+        printf("Usage: <config file path> <files_to_download.txt> <-i for interactive mode> <-h for host only mode>\n");
+        //loadConfig(CONFIG_FILE_PATH);
     }else{
         loadConfig(argv[1]);
     }
@@ -696,6 +818,9 @@ int main(int argc, char *argv[]){
     for(int i = 0; i < argc; i++){
         if(strcmp(argv[i], "-i") == 0){
             interactive = true;
+        }
+        if(strcmp(argv[i], "-h") == 0){
+            hostonly = true;
         }
     }
     //ensure that the folder for the hosted files exists
@@ -715,20 +840,44 @@ int main(int argc, char *argv[]){
         printf("Failed to register peer with server\n");
         exit(1);
     }
-    //start the interactive mode thread if the -i flag was passed
-    //start the thread to listen for connections
-    std::thread t1(listenForConnections);
-    t1.detach();
-    //if there was a list of files to download passed as an argument, download them
-    if(argc >= 3){
-        sleep(2);
-        loadDownloadList(argv[2]);
-        sleep(10);
+
+    for(int i = 0; i < DL_THREADS; i++){
+        std::thread t1(&downloader_thread_function);
+        t1.detach();
     }
+
+    std::thread t1(listenForConnections);
+    //if the -h flag was passed, only host files and listen for connections
+    if(hostonly){
+        printf("Peer is only hosting files\n");
+        while(1){
+            t1.join();
+        }
+        return 0;
+    }
+    //start the thread to listen for connections
+    t1.detach();
+    //start the interactive mode thread if the -i flag was passed
     if(interactive){
         std::thread it(interactiveMode);
         it.join();
     }
-
+    //if there was a list of files to download passed as an argument, download them
+    else{
+        sleep(2);
+        std::string arg2 = argv[2];
+        std::vector<std::string> dl_list = splitString(arg2, ',');
+        
+        loadDownloadList(dl_list);
+        while(!query_map.empty()){
+            sleep(1);
+        }
+        printf("All files downloaded\n");
+    }
+    printf("Going to host only mode\n");
+    fflush(stdout);
+    while(1){
+        sleep(15);
+    }
     return 0;
 }

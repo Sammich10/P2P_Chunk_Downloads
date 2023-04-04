@@ -1,34 +1,42 @@
-#!/bin/bash
-
-if [ ! -d "logs" ]; then
-  mkdir "logs"
-fi
-if [ ! -d "tests" ]; then
-  echo "test files not found"
+if [ $# -ne 3 ]; then
+  echo "Usage: test.sh <type(a2a|tree)> <num super peers> <num peers per super peer>"
   exit 1
 fi
-if [ ! -d "results" ]; then
-  mkdir "results"
+if [ $1 != "a2a" ] && [ $1 != "tree" ]; then
+  echo "Usage: test.sh <type(a2a|tree)> <num super peers> <num peers per super peer>"
+  exit 1
 fi
 
-echo "Starting 3 super peers"
+if [ $2 -lt 1 ] || [ $2 -gt 10 ]; then
+  echo "Number of super peers must be between 1 and 10"
+  exit 1
+fi
 
-./superpeer.o peer_configs/super_peers/superpeer1.cfg > logs/superpeer1.log &
-./superpeer.o peer_configs/super_peers/superpeer2.cfg > logs/superpeer2.log &
-./superpeer.o peer_configs/super_peers/superpeer3.cfg > logs/superpeer3.log &
+if [ $3 -lt 1 ] || [ $3 -gt 5 ]; then
+  echo "Number of peers per super peer must be between 1 and 5"
+  exit 1
+fi
 
+./init.sh $1 $2 $3
 
+echo "Starting ${2} super peers"
 
-sleep 5
+for i in $(seq 1 $2); do
+  ./superpeer.o peer_configs/super_peers/superpeer${i}.cfg > logs/superpeer${i}.log 2>&1 &
+done
 
-echo "Starting 9 peers"
+sleep $2
 
-./peernode.o peer_configs/weak_peers/peer1.cfg > logs/peer1.log &
-./peernode.o peer_configs/weak_peers/peer2.cfg > logs/peer2.log &
-./peernode.o peer_configs/weak_peers/peer3.cfg > logs/peer3.log &
-./peernode.o peer_configs/weak_peers/peer4.cfg > logs/peer4.log &
-./peernode.o peer_configs/weak_peers/peer5.cfg > logs/peer5.log &
-./peernode.o peer_configs/weak_peers/peer6.cfg > logs/peer6.log &
-./peernode.o peer_configs/weak_peers/peer7.cfg > logs/peer7.log &
-./peernode.o peer_configs/weak_peers/peer8.cfg > logs/peer8.log &
-./peernode.o peer_configs/weak_peers/peer9.cfg > logs/peer9.log &
+j=$(($2 * $3))
+
+echo "Starting ${j} peers in host only mode"
+
+for x in $(seq 2 $j); do
+  ./peernode.o peer_configs/weak_peers/peer${x}.cfg -h > logs/peer${x}.log 2>&1 &
+done
+
+ps
+
+echo "Starting peer 1 in interactive mode"
+
+./peernode.o peer_configs/weak_peers/peer1.cfg -i
