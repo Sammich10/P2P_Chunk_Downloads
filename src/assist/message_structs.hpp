@@ -16,6 +16,12 @@ struct peer_info{//struct to store registered peer information
 	std::vector<file_info> files;
 };
 
+struct hosting_peer{
+    std::string peer_id;
+    char ip[15];
+    uint16_t port;
+};
+
 struct super_peer_info{//struct to store registered super peer information
     std::string super_peer_id;
     char ip[15];
@@ -27,25 +33,8 @@ struct MessageHeader {
 };
 
 struct Message{
-    std::string length;
+    uint32_t length;
     std::string content;
-};
-
-struct QueryMessage{
-    std::string message_id;
-    std::string file_name;
-    int ttl;
-    std::string origin_peer_id;
-    std::string origin_ip_address;
-    int origin_port;
-};
-
-struct QueryHitMessage{
-    std::string message_id;
-    std::string file_name;
-    std::string peer_id;
-    std::string ip_address;
-    int port;
 };
 
 #endif

@@ -7,101 +7,6 @@
 #include <netinet/in.h>
 #include "message_structs.hpp"
 
-std::vector<uint8_t> serializeQueryMessage(QueryMessage& message) {
-    std::vector<uint8_t> buffer;
-    uint32_t message_id_length = message.message_id.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message_id_length), reinterpret_cast<uint8_t*>(&message_id_length) + sizeof(message_id_length));
-    buffer.insert(buffer.end(), message.message_id.begin(), message.message_id.end());
-    uint32_t file_name_length = message.file_name.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&file_name_length), reinterpret_cast<uint8_t*>(&file_name_length) + sizeof(file_name_length));
-    buffer.insert(buffer.end(), message.file_name.begin(), message.file_name.end());
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message.ttl), reinterpret_cast<uint8_t*>(&message.ttl) + sizeof(message.ttl));
-    uint32_t origin_peer_id_length = message.origin_peer_id.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&origin_peer_id_length), reinterpret_cast<uint8_t*>(&origin_peer_id_length) + sizeof(origin_peer_id_length));
-    buffer.insert(buffer.end(), message.origin_peer_id.begin(), message.origin_peer_id.end());
-    uint32_t origin_ip_address_length = message.origin_ip_address.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&origin_ip_address_length), reinterpret_cast<uint8_t*>(&origin_ip_address_length) + sizeof(origin_ip_address_length));
-    buffer.insert(buffer.end(), message.origin_ip_address.begin(), message.origin_ip_address.end());
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message.origin_port), reinterpret_cast<uint8_t*>(&message.origin_port) + sizeof(message.origin_port));
-    
-    return buffer;
-}
-
-QueryMessage deserializeQueryMessage(std::vector<uint8_t>& buffer) {
-    QueryMessage message;
-    
-    uint32_t offset = 0;
-    
-    uint32_t message_id_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(message_id_length);
-    message.message_id.assign(reinterpret_cast<const char*>(&buffer[offset]), message_id_length);
-    offset += message_id_length;
-    uint32_t file_name_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(file_name_length);
-    message.file_name.assign(reinterpret_cast<const char*>(&buffer[offset]), file_name_length);
-    offset += file_name_length;
-    message.ttl = *reinterpret_cast<const int*>(&buffer[offset]);
-    offset += sizeof(message.ttl);
-    uint32_t origin_peer_id_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(origin_peer_id_length);
-    message.origin_peer_id.assign(reinterpret_cast<const char*>(&buffer[offset]), origin_peer_id_length);
-    offset += origin_peer_id_length;
-    uint32_t origin_ip_address_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(origin_ip_address_length);
-    message.origin_ip_address.assign(reinterpret_cast<const char*>(&buffer[offset]), origin_ip_address_length);
-    offset+= origin_ip_address_length;
-    message.origin_port = *reinterpret_cast<const int*>(&buffer[offset]);
-    offset += sizeof(message.origin_port);
-    
-    return message;
-}
-
-std::vector<uint8_t> serializeQueryHitMessage(QueryHitMessage& message) {
-    std::vector<uint8_t> buffer;
-
-    uint32_t message_id_length = message.message_id.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message_id_length), reinterpret_cast<uint8_t*>(&message_id_length) + sizeof(message_id_length));
-    buffer.insert(buffer.end(), message.message_id.begin(), message.message_id.end());
-    uint32_t file_name_length = message.file_name.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&file_name_length), reinterpret_cast<uint8_t*>(&file_name_length) + sizeof(file_name_length));
-    buffer.insert(buffer.end(), message.file_name.begin(), message.file_name.end());
-    uint32_t peer_id_length = message.peer_id.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&peer_id_length), reinterpret_cast<uint8_t*>(&peer_id_length) + sizeof(peer_id_length));
-    buffer.insert(buffer.end(), message.peer_id.begin(), message.peer_id.end());
-    uint32_t ip_address_length = message.ip_address.size();
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&ip_address_length), reinterpret_cast<uint8_t*>(&ip_address_length) + sizeof(ip_address_length));
-    buffer.insert(buffer.end(), message.ip_address.begin(), message.ip_address.end());
-    buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&message.port), reinterpret_cast<uint8_t*>(&message.port) + sizeof(message.port));
-
-    return buffer;
-}
-
-QueryHitMessage deserializeQueryHitMessage(const std::vector<uint8_t>& buffer) {
-    QueryHitMessage message;
-    
-    uint32_t offset = 0;
-    uint32_t message_id_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(message_id_length);
-    message.message_id.assign(reinterpret_cast<const char*>(&buffer[offset]), message_id_length);
-    offset += message_id_length;
-    uint32_t file_name_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(file_name_length);
-    message.file_name.assign(reinterpret_cast<const char*>(&buffer[offset]), file_name_length);
-    offset += file_name_length;
-    uint32_t peer_id_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(peer_id_length);
-    message.peer_id.assign(reinterpret_cast<const char*>(&buffer[offset]), peer_id_length);
-    offset += peer_id_length;
-    uint32_t ip_address_length = *reinterpret_cast<const uint32_t*>(&buffer[offset]);
-    offset += sizeof(ip_address_length);
-    message.ip_address.assign(reinterpret_cast<const char*>(&buffer[offset]), ip_address_length);
-    offset += ip_address_length;
-    message.port = *reinterpret_cast<const int*>(&buffer[offset]);
-    offset += sizeof(message.port);
-    
-    return message;
-}
-
 void serialize_peer_info(peer_info& info, char* buffer) {
     int offset = 0;
 
@@ -154,3 +59,58 @@ void deserialize_peer_info(char* buffer, peer_info& info) {
         info.files.push_back(file);
     }
 }
+
+void serialize_hosting_peers(std::vector<hosting_peer> peers, char* buffer){
+    int offset = 0;
+    uint32_t num_peers_n = htonl(peers.size());
+    memcpy(buffer+offset, &num_peers_n, sizeof(num_peers_n));
+    offset += sizeof(num_peers_n);
+    for(const auto& peer : peers){
+        memcpy(buffer+offset, peer.peer_id.c_str(), peer.peer_id.size()+1);
+        offset += peer.peer_id.size()+1;
+        memcpy(buffer+offset, peer.ip, 15);
+        offset += 15;
+        uint16_t port_n = htons(peer.port);
+        memcpy(buffer+offset, &port_n, sizeof(port_n));
+        offset += sizeof(port_n);
+    }
+}
+
+void deserialize_hosting_peers(char* buffer, std::vector<hosting_peer> peers){
+    int offset = 0;
+    uint32_t num_peers_n = ntohl(*reinterpret_cast<const uint32_t*>(&buffer[offset]));
+    offset += sizeof(num_peers_n);
+    for(uint32_t i = 0; i < num_peers_n; i++){
+        hosting_peer peer;
+        peer.peer_id = buffer+offset;
+        offset += peer.peer_id.size()+1;
+        memcpy(peer.ip, buffer+offset, 15);
+        offset += 15;
+        uint16_t port_n = ntohs(*reinterpret_cast<const uint16_t*>(&buffer[offset]));
+        peer.port = port_n;
+        offset += sizeof(port_n);
+        peers.push_back(peer);
+    }
+}
+
+void serialize_message(Message& msg, char* buffer){
+    int offset = 0;
+    uint32_t message_len = htonl(msg.length);
+    memcpy(buffer+offset, &message_len, sizeof(message_len));
+    offset += sizeof(msg.length);
+    memcpy(buffer+offset, msg.content.c_str(), msg.content.size()+1);
+    return;
+}
+
+void deserialize_message(char* buffer, Message& msg) {
+    int offset = 0;
+    msg.length = ntohl(*reinterpret_cast<const uint32_t*>(&buffer[offset]));
+    if(msg.length > sizeof(buffer)-sizeof(uint32_t)){
+        perror("Message length longer than buffer");
+        return;
+    }
+    offset += sizeof(msg.length);
+    msg.content.assign(reinterpret_cast<const char*>(&buffer[offset]), msg.length);
+    offset += msg.length;
+}
+
