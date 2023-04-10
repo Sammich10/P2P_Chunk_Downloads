@@ -30,7 +30,7 @@ std::condition_variable qcv;
 //Queues
 SocketQueue socket_queue;
 
-/*** Helper functions for super peer ***/
+/*** Helper functions for index server ***/
 
 bool loadConfig(const char filepath[]){//function to load configuration parameters from config file
 	char real_path[PATH_MAX+1];
@@ -69,6 +69,7 @@ void check(int n, const char *msg){
 		perror(err.c_str());
 	}
 }
+
 /*****************************************************************************************************************/
 
 /*** Socket functions for super peer ***/

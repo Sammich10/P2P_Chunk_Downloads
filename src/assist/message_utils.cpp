@@ -114,3 +114,67 @@ void deserialize_message(char* buffer, Message& msg) {
     offset += msg.length;
 }
 
+std::string md5(const std::string& file_path) {
+    std::string md5_str;
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+    const EVP_MD* md = EVP_get_digestbyname("md5");
+    unsigned char md_value[EVP_MAX_MD_SIZE];
+    unsigned int md_len;
+
+    if (!mdctx || !md) {
+        perror("!mdctx || !md");
+        return md5_str;
+    }
+
+    if (EVP_DigestInit_ex(mdctx, md, NULL) != 1) {
+        perror("EVP_DigestInit_ex");
+        EVP_MD_CTX_free(mdctx);
+        return md5_str;
+    }
+
+    FILE* file = fopen(file_path.c_str(), "rb");
+    if (!file) {
+        perror("md5 fopen");
+        EVP_MD_CTX_free(mdctx);
+        return md5_str;
+    }
+
+    const size_t buf_size = 4096;
+    unsigned char buf[buf_size];
+    size_t n;
+    while ((n = fread(buf, 1, buf_size, file)) > 0) {
+        if (EVP_DigestUpdate(mdctx, buf, n) != 1) {
+            perror("EVP_DigestUpdate");
+            EVP_MD_CTX_free(mdctx);
+            fclose(file);
+            return md5_str;
+        }
+    }
+
+    if (ferror(file)) {
+        perror("md5 ferror");
+        EVP_MD_CTX_free(mdctx);
+        fclose(file);
+        return md5_str;
+    }
+
+    fclose(file);
+
+    if (EVP_DigestFinal_ex(mdctx, md_value, &md_len) != 1) {
+        perror("EVP_DigestFinal_ex");
+        EVP_MD_CTX_free(mdctx);
+        return md5_str;
+    }
+
+    EVP_MD_CTX_free(mdctx);
+
+    // Convert md_value to a hex string
+    std::stringstream ss;
+    for (unsigned int i = 0; i < md_len; i++) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << (int)md_value[i];
+    }
+    md5_str = ss.str();
+
+    return md5_str;
+}
+
